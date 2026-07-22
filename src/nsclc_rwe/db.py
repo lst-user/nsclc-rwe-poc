@@ -1,6 +1,7 @@
 import re
+from urllib.parse import urlsplit
 
-import psycopg
+import httpx
 
 from .config import Settings
 
@@ -16,19 +17,32 @@ def run_readonly_query(
 ) -> list[dict]:
     """Execute a read-only query against the OMOP CDM Postgres database.
 
-    Rejects anything that isn't a SELECT/WITH statement and caps both the
-    statement duration and the number of rows returned, since this is meant
-    to be called from model-generated tool input.
+    Rejects anything that isn't a SELECT/WITH statement and caps the number
+    of rows returned, since this is meant to be called from model-generated
+    tool input.
+
+    Runs over Neon's SQL-over-HTTP endpoint (``POST https://<host>/sql``)
+    rather than the raw Postgres wire protocol: sandboxed environments that
+    proxy HTTP(S) but not raw TCP can't reach port 5432 directly, and this
+    path reuses the same HTTPS route that already works for other APIs.
+    Only works against Neon-hosted databases, since the endpoint and its
+    ``Neon-Connection-String`` header are a Neon-specific feature, not a
+    standard Postgres one.
     """
     if not _READONLY_PATTERN.match(sql):
         raise ReadOnlyQueryError("Only SELECT/WITH statements are allowed.")
 
-    with psycopg.connect(settings.database_url, connect_timeout=10) as conn:
-        conn.read_only = True
-        with conn.cursor() as cur:
-            cur.execute("SET statement_timeout = '15s'")
-            cur.execute(sql)
-            columns = [desc.name for desc in cur.description] if cur.description else []
-            rows = cur.fetchmany(max_rows)
-
-    return [dict(zip(columns, row)) for row in rows]
+    host = urlsplit(settings.database_url.replace("postgresql://", "https://", 1)).hostname
+    response = httpx.post(
+        f"https://{host}/sql",
+        json={"query": sql, "params": []},
+        headers={
+            "Neon-Connection-String": settings.database_url,
+            "Neon-Raw-Text-Output": "true",
+            "Neon-Array-Mode": "false",
+        },
+        timeout=15.0,
+    )
+    response.raise_for_status()
+    rows = response.json()["rows"]
+    return rows[:max_rows]

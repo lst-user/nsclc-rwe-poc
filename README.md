@@ -29,7 +29,9 @@ Prototype Claude API tool-use agent for NSCLC real-world evidence work. It
 gives Claude two tools:
 
 - `query_omop_database` — read-only SQL (`SELECT`/`WITH` only) against a
-  hosted Postgres instance holding an OMOP CDM.
+  Neon-hosted Postgres instance holding an OMOP CDM, run over Neon's
+  SQL-over-HTTP endpoint rather than the raw wire protocol (see
+  [Network access](#network-access-this-needs)).
 - `search_atlas_vocabulary` — vocabulary search against an OHDSI Atlas
   WebAPI instance (defaults to the public demo at `atlas-demo.ohdsi.org`).
 
@@ -85,7 +87,8 @@ The prototype needs to reach three destinations:
 |---|---|---|---|
 | `api.anthropic.com` | 443 | ✅ Works out of the box | Already on the default allowlist — re-checked 2026-07-22, live `401` from Cloudflare (invalid test key, but a real server response, not a proxy denial) |
 | `atlas-demo.ohdsi.org` | 443 | ✅ Works once allowlisted | Not on the default allowlist — added to this environment's allowed hosts; re-verified live 2026-07-22 (`AtlasClient.info()` returned a real response from WebAPI 2.14.0) |
-| Your Postgres host (from `DATABASE_URL`) | usually 5432 | ❌ Blocked (connection timeout, not a 403) | Raw TCP database connections aren't proxied at all in this setup — see below, this isn't just an allowlist gap. Re-confirmed 2026-07-22 against a real Neon `DATABASE_URL`: both `psycopg.connect()` and a raw TCP probe to port 5432 hung until timeout, no 403 |
+| Your Postgres host (from `DATABASE_URL`), raw wire protocol | 5432 | ❌ Blocked (connection timeout, not a 403) | Raw TCP isn't proxied at all in this setup — see below |
+| Your Neon host, SQL-over-HTTP (`https://<host>/sql`) | 443 | ✅ Works | Same HTTPS path as everything else — `db.py` now queries through this instead of raw Postgres wire protocol |
 
 ### Atlas: an allowlist fix (done)
 
@@ -95,25 +98,30 @@ environment's allowed hosts (in the Claude Code on the web environment
 settings) resolved this — no code changes needed, and the change took
 effect without restarting the session.
 
-### Postgres: not just an allowlist fix
+### Postgres: not just an allowlist fix (worked around via Neon's HTTP endpoint)
 
-Unlike Atlas, the Postgres connection doesn't fail with a proxy `403` — it
-hangs and times out. That's because this sandbox's egress proxy only
+Unlike Atlas, the raw Postgres connection doesn't fail with a proxy `403`
+— it hangs and times out. That's because this sandbox's egress proxy only
 tunnels HTTP(S); raw-TCP protocols (including the Postgres wire protocol)
-aren't supported through it at all, regardless of allowlisting. Two ways
-around this:
+aren't supported through it at all, regardless of allowlisting or valid
+credentials. Confirmed 2026-07-22: both `psycopg.connect()` and a raw TCP
+probe to port 5432 hung until timeout against a real Neon `DATABASE_URL`.
 
-- **Unrestricted egress.** If the environment can be configured for
-  unrestricted egress instead of the HTTP-only allowlist proxy, raw TCP to
-  the database host should work directly.
-- **An HTTP-based DB access path.** Some managed Postgres providers (e.g.
-  Neon) expose a REST/HTTP query interface as an alternative to the raw
-  wire protocol. If your provider offers one with client support for your
-  language, it would route through the same HTTPS path that already works
-  for the Claude API — but this means swapping out `psycopg` for an
-  HTTP-based client, not just a config change.
+Since the database is Neon-hosted, `db.py` now queries it over Neon's
+**SQL-over-HTTP** endpoint instead: `POST https://<host>/sql` with the
+connection string passed as a `Neon-Connection-String` header and the SQL
+text as a JSON body — the same protocol the `@neondatabase/serverless` JS
+driver uses under the hood. This is a plain HTTPS request, so it goes
+through the same proxy path that already works for the Claude API and
+Atlas. Verified live 2026-07-22 (`select version()` returned a real
+response from the Neon Postgres instance).
 
-If neither is available, treat this as a known limitation of running
-against a raw-TCP database from this environment, not a bug in this
-project's code — the credentials and query logic have been verified to
-work correctly once the connection can be established.
+This fix is Neon-specific — it relies on a feature of Neon's hosting, not
+a standard Postgres capability, so it wouldn't work unmodified against a
+self-hosted or non-Neon-managed Postgres instance. For those, the options
+are still:
+
+- **Unrestricted egress**, if the environment can be configured for it —
+  raw TCP to the database host would work directly.
+- **Whatever HTTP-based access path your provider offers**, if any,
+  swapped in the same way `db.py` did here.
