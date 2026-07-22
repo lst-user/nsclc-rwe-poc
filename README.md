@@ -64,6 +64,28 @@ Authenticate to the Claude API either by setting `ANTHROPIC_API_KEY` in
 `.env`, or by running `ant auth login` (the SDK picks up that profile
 automatically with no env var needed).
 
+### Persisting `DATABASE_URL` in Claude Code on the web
+
+A local `.env` file only lives inside one cloud session's container — it's
+gitignored (so it's never committed) and disappears once that session's
+container is reclaimed. A fresh session cloning this repo starts with no
+`DATABASE_URL` at all.
+
+To make it available automatically in every future cloud session, set it
+in the environment's persistent settings instead: click the cloud icon
+showing the current environment's name, hover over the environment, click
+the settings icon, and add it in the **Environment variables** field.
+That field uses `.env` syntax — one `KEY=value` pair per line, no quotes
+around the value:
+
+```text
+DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
+```
+
+Note there's no dedicated secrets store for this yet — anything set there
+is stored in plain text and visible to anyone who can edit that
+environment.
+
 ## Run
 
 ```bash
