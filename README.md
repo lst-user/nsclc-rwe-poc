@@ -117,3 +117,17 @@ If neither is available, treat this as a known limitation of running
 against a raw-TCP database from this environment, not a bug in this
 project's code — the credentials and query logic have been verified to
 work correctly once the connection can be established.
+
+### Re-verified: still blocked (2026-07-22)
+
+Re-ran the connectivity check. No `DATABASE_URL` is configured in this
+session (no `.env` present), so this re-check targeted the network layer
+directly rather than a specific host: raw TCP connect attempts on port
+5432 (the Postgres default) to external hosts still time out after the
+full connect timeout, exactly like the original finding. As a sanity
+check, port 443 (HTTPS) and port 80 (HTTP) connect instantly on the same
+hosts, while port 22 (SSH) and 3306 (MySQL) time out the same way port
+5432 does — confirming this environment's egress currently allows only
+plain HTTP/HTTPS, with everything else, Postgres included, dropped
+silently rather than rejected. No change from the prior result; the
+mitigation options above still apply.
