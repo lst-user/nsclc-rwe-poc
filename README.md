@@ -79,31 +79,42 @@ pytest
 This runs in a cloud sandbox, so outbound network access is gated by the
 environment's network policy (set when the environment was created — see
 the [Claude Code on the web docs](https://code.claude.com/docs/en/claude-code-on-the-web)).
-For this prototype to work, the sandbox's egress needs to reach, over
-HTTPS/TCP:
+The prototype needs to reach three destinations, and a live smoke test in a
+default-policy sandbox confirmed each behaves differently:
 
-| Destination | Port | Why |
-|---|---|---|
-| `api.anthropic.com` | 443 | Claude API calls made by the `anthropic` SDK |
-| Your Postgres host (from `DATABASE_URL`) | usually 5432, or whatever your provider uses | Raw Postgres wire protocol — **not** HTTP, so an HTTP-only allowlist won't cover it |
-| `atlas-demo.ohdsi.org` | 443 | OHDSI Atlas WebAPI calls |
+| Destination | Port | Status in a default sandbox | Why |
+|---|---|---|---|
+| `api.anthropic.com` | 443 | ✅ Works out of the box | Already on the default allowlist |
+| `atlas-demo.ohdsi.org` | 443 | ❌ Blocked (`403` from the egress proxy) | Not on the default allowlist — an admin needs to add this host in the environment's settings |
+| Your Postgres host (from `DATABASE_URL`) | usually 5432 | ❌ Blocked (connection timeout, not a 403) | Raw TCP database connections aren't proxied at all in this setup — see below, this isn't just an allowlist gap |
 
-If the environment is configured with unrestricted egress, none of this
-needs any action. If it's configured with an allowlist, add the three hosts
-above explicitly — check the environment's settings in the Claude Code web
-UI (or ask Claude to explain the current policy, since it's visible from
-inside the session).
+### Atlas: an allowlist fix
 
-Two gotchas specific to the Postgres leg:
+The proxy logs an explicit policy denial (`gateway answered 403 to CONNECT`)
+for hosts that aren't allowed. Adding `atlas-demo.ohdsi.org` to the
+environment's allowed hosts (in the Claude Code on the web environment
+settings) should resolve this — it's a one-line addition, not an
+architectural problem.
 
-- **It's TCP, not HTTP.** An allowlist that only permits HTTPS domains won't
-  let the `psycopg` connection through. Some managed Postgres providers
-  (e.g. Neon, Supabase) also offer an HTTP-based/serverless driver that
-  tunnels over 443 — worth considering if the sandbox's network policy is
-  HTTP-only and can't be changed.
-- **IP allowlisting on the database side.** If your Postgres provider
-  restricts inbound connections by source IP (e.g. AWS RDS security groups,
-  Supabase/Neon IP restrictions), you also need to allow the sandbox's
-  egress IP range there — and that range may not be static, so check your
-  provider's docs for how to handle non-static egress (or open access more
-  broadly and rely on the read-only DB user + TLS instead).
+### Postgres: not just an allowlist fix
+
+Unlike Atlas, the Postgres connection doesn't fail with a proxy `403` — it
+hangs and times out. That's because this sandbox's egress proxy only
+tunnels HTTP(S); raw-TCP protocols (including the Postgres wire protocol)
+aren't supported through it at all, regardless of allowlisting. Two ways
+around this:
+
+- **Unrestricted egress.** If the environment can be configured for
+  unrestricted egress instead of the HTTP-only allowlist proxy, raw TCP to
+  the database host should work directly.
+- **An HTTP-based DB access path.** Some managed Postgres providers (e.g.
+  Neon) expose a REST/HTTP query interface as an alternative to the raw
+  wire protocol. If your provider offers one with client support for your
+  language, it would route through the same HTTPS path that already works
+  for the Claude API — but this means swapping out `psycopg` for an
+  HTTP-based client, not just a config change.
+
+If neither is available, treat this as a known limitation of running
+against a raw-TCP database from this environment, not a bug in this
+project's code — the credentials and query logic have been verified to
+work correctly once the connection can be established.
