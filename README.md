@@ -79,22 +79,21 @@ pytest
 This runs in a cloud sandbox, so outbound network access is gated by the
 environment's network policy (set when the environment was created — see
 the [Claude Code on the web docs](https://code.claude.com/docs/en/claude-code-on-the-web)).
-The prototype needs to reach three destinations, and a live smoke test in a
-default-policy sandbox confirmed each behaves differently:
+The prototype needs to reach three destinations:
 
-| Destination | Port | Status in a default sandbox | Why |
+| Destination | Port | Status | Why |
 |---|---|---|---|
 | `api.anthropic.com` | 443 | ✅ Works out of the box | Already on the default allowlist |
-| `atlas-demo.ohdsi.org` | 443 | ❌ Blocked (`403` from the egress proxy) | Not on the default allowlist — an admin needs to add this host in the environment's settings |
+| `atlas-demo.ohdsi.org` | 443 | ✅ Works once allowlisted | Not on the default allowlist — added to this environment's allowed hosts and verified live (`AtlasClient.info()` returned a real response from WebAPI 2.14.0) |
 | Your Postgres host (from `DATABASE_URL`) | usually 5432 | ❌ Blocked (connection timeout, not a 403) | Raw TCP database connections aren't proxied at all in this setup — see below, this isn't just an allowlist gap |
 
-### Atlas: an allowlist fix
+### Atlas: an allowlist fix (done)
 
 The proxy logs an explicit policy denial (`gateway answered 403 to CONNECT`)
 for hosts that aren't allowed. Adding `atlas-demo.ohdsi.org` to the
 environment's allowed hosts (in the Claude Code on the web environment
-settings) should resolve this — it's a one-line addition, not an
-architectural problem.
+settings) resolved this — no code changes needed, and the change took
+effect without restarting the session.
 
 ### Postgres: not just an allowlist fix
 
