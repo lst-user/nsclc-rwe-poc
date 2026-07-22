@@ -29,7 +29,8 @@ Prototype Claude API tool-use agent for NSCLC real-world evidence work. It
 gives Claude two tools:
 
 - `query_omop_database` — read-only SQL (`SELECT`/`WITH` only) against a
-  hosted Postgres instance holding an OMOP CDM.
+  hosted Postgres instance holding an OMOP CDM, executed over Neon's
+  SQL-over-HTTP endpoint rather than the raw Postgres wire protocol.
 - `search_atlas_vocabulary` — vocabulary search against an OHDSI Atlas
   WebAPI instance (defaults to the public demo at `atlas-demo.ohdsi.org`).
 
@@ -42,7 +43,7 @@ execute → loop cycle automatically.
 ```
 src/nsclc_rwe/
   config.py   # env-based settings (DATABASE_URL, ATLAS_BASE_URL, ...)
-  db.py       # read-only Postgres query helper
+  db.py       # read-only Postgres query helper (Neon SQL-over-HTTP)
   atlas.py    # OHDSI Atlas WebAPI client
   tools.py    # @beta_tool-decorated tool functions
   agent.py    # entry point that runs the tool-use loop
@@ -79,13 +80,13 @@ pytest
 This runs in a cloud sandbox, so outbound network access is gated by the
 environment's network policy (set when the environment was created — see
 the [Claude Code on the web docs](https://code.claude.com/docs/en/claude-code-on-the-web)).
-The prototype needs to reach three destinations:
+The prototype needs to reach two destinations, both over plain HTTPS:
 
 | Destination | Port | Status | Why |
 |---|---|---|---|
 | `api.anthropic.com` | 443 | ✅ Works out of the box | Already on the default allowlist |
 | `atlas-demo.ohdsi.org` | 443 | ✅ Works once allowlisted | Not on the default allowlist — added to this environment's allowed hosts and verified live (`AtlasClient.info()` returned a real response from WebAPI 2.14.0) |
-| Your Postgres host (from `DATABASE_URL`) | usually 5432 | ❌ Blocked (connection timeout, not a 403) | Raw TCP database connections aren't proxied at all in this setup — see below, this isn't just an allowlist gap |
+| Your Postgres host (from `DATABASE_URL`) | 443 (HTTPS) | ✅ Works | `db.py` talks to Neon's SQL-over-HTTP endpoint (`https://<host>/sql`), not the raw Postgres wire protocol — see below |
 
 ### Atlas: an allowlist fix (done)
 
@@ -95,25 +96,25 @@ environment's allowed hosts (in the Claude Code on the web environment
 settings) resolved this — no code changes needed, and the change took
 effect without restarting the session.
 
-### Postgres: not just an allowlist fix
+### Postgres: swapped the wire protocol for HTTP
 
-Unlike Atlas, the Postgres connection doesn't fail with a proxy `403` — it
-hangs and times out. That's because this sandbox's egress proxy only
-tunnels HTTP(S); raw-TCP protocols (including the Postgres wire protocol)
-aren't supported through it at all, regardless of allowlisting. Two ways
-around this:
+This sandbox's egress proxy only tunnels HTTP(S); raw-TCP protocols
+(including the Postgres wire protocol on port 5432) aren't supported
+through it at all, regardless of allowlisting — connections just hang and
+time out. Since the hosted database is on Neon, `db.py` avoids this
+entirely by using [Neon's SQL-over-HTTP endpoint](https://neon.tech/docs/serverless/serverless-driver#use-the-driver-over-http)
+instead of `psycopg`:
 
-- **Unrestricted egress.** If the environment can be configured for
-  unrestricted egress instead of the HTTP-only allowlist proxy, raw TCP to
-  the database host should work directly.
-- **An HTTP-based DB access path.** Some managed Postgres providers (e.g.
-  Neon) expose a REST/HTTP query interface as an alternative to the raw
-  wire protocol. If your provider offers one with client support for your
-  language, it would route through the same HTTPS path that already works
-  for the Claude API — but this means swapping out `psycopg` for an
-  HTTP-based client, not just a config change.
-
-If neither is available, treat this as a known limitation of running
-against a raw-TCP database from this environment, not a bug in this
-project's code — the credentials and query logic have been verified to
-work correctly once the connection can be established.
+- Each query is a `POST https://<host>/sql` with the connection string in
+  a `Neon-Connection-String` header and the SQL in a JSON body — plain
+  HTTPS, so it goes through the same proxy path that already works for
+  the Claude API and Atlas.
+- Read-only enforcement and the statement timeout are still applied by
+  Postgres itself (not just the client-side regex check): each request
+  batches `SET TRANSACTION READ ONLY`, `SET statement_timeout`, and the
+  query itself into one implicit transaction via the endpoint's `queries`
+  array, so a write is rejected by Postgres (`cannot execute ... in a
+  read-only transaction`), not just filtered by the app.
+- This only works because Neon exposes this endpoint. A provider without
+  an HTTP query interface would still need unrestricted egress (or a
+  different network path) for raw TCP to work in this environment.
