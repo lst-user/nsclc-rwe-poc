@@ -83,9 +83,9 @@ The prototype needs to reach three destinations:
 
 | Destination | Port | Status | Why |
 |---|---|---|---|
-| `api.anthropic.com` | 443 | ✅ Works out of the box | Already on the default allowlist |
-| `atlas-demo.ohdsi.org` | 443 | ✅ Works once allowlisted | Not on the default allowlist — added to this environment's allowed hosts and verified live (`AtlasClient.info()` returned a real response from WebAPI 2.14.0) |
-| Your Postgres host (from `DATABASE_URL`) | usually 5432 | ❌ Blocked (connection timeout, not a 403) | Raw TCP database connections aren't proxied at all in this setup — see below, this isn't just an allowlist gap |
+| `api.anthropic.com` | 443 | ✅ Works out of the box | Already on the default allowlist — re-checked 2026-07-22, live `401` from Cloudflare (invalid test key, but a real server response, not a proxy denial) |
+| `atlas-demo.ohdsi.org` | 443 | ✅ Works once allowlisted | Not on the default allowlist — added to this environment's allowed hosts; re-verified live 2026-07-22 (`AtlasClient.info()` returned a real response from WebAPI 2.14.0) |
+| Your Postgres host (from `DATABASE_URL`) | usually 5432 | ❌ Blocked (connection timeout, not a 403) | Raw TCP database connections aren't proxied at all in this setup — see below, this isn't just an allowlist gap. Not re-tested on 2026-07-22 — no `DATABASE_URL` was configured in that session, so there was no host to check against |
 
 ### Atlas: an allowlist fix (done)
 
