@@ -1,5 +1,30 @@
 # nsclc-rwe-poc
 
+## Goal
+
+This is a proof of concept for using Claude as a research assistant over
+real-world evidence (RWE) for non-small cell lung cancer (NSCLC). The idea
+is to let an analyst ask questions in plain language — about patient
+cohorts, drug exposures, outcomes, or standard clinical vocabulary — and
+have Claude figure out which underlying data source to query and how,
+rather than the analyst hand-writing SQL or navigating the Atlas UI
+themselves.
+
+Concretely, it demonstrates Claude's tool-use loop wired to two real
+resources a clinical RWE workflow depends on:
+
+- an **OMOP CDM** database (the standardized schema RWE studies are built
+  on) for patient-level querying, and
+- the **OHDSI Atlas** vocabulary service for mapping natural-language
+  clinical terms to standard concepts.
+
+It's intentionally small in scope — a starting point to validate that this
+pattern (LLM + OMOP + Atlas) works end-to-end, not a production analytics
+tool. There's no cohort-building, no statistical analysis, and no PHI
+handling built in yet.
+
+## What's in the repo
+
 Prototype Claude API tool-use agent for NSCLC real-world evidence work. It
 gives Claude two tools:
 
