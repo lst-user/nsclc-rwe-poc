@@ -26,13 +26,18 @@ handling built in yet.
 ## What's in the repo
 
 Prototype Claude API tool-use agent for NSCLC real-world evidence work. It
-gives Claude two tools:
+gives Claude three tools:
 
 - `query_omop_database` — read-only SQL (`SELECT`/`WITH` only) against a
   hosted Postgres instance holding an OMOP CDM, executed over Neon's
   SQL-over-HTTP endpoint rather than the raw Postgres wire protocol.
 - `search_atlas_vocabulary` — vocabulary search against an OHDSI Atlas
   WebAPI instance (defaults to the public demo at `atlas-demo.ohdsi.org`).
+- `define_nsclc_cohort` — captures an OMOP-style cohort definition (condition
+  concept, optional drug concept, demographics, observation window) that
+  Claude has assembled from an analyst's natural-language request. It
+  validates and echoes the structured definition back; it does not build or
+  query a cohort yet.
 
 Claude decides when to call each tool via the Anthropic SDK's beta tool
 runner (`client.beta.messages.tool_runner`), which drives the request →
@@ -42,13 +47,15 @@ execute → loop cycle automatically.
 
 ```
 src/nsclc_rwe/
-  config.py   # env-based settings (DATABASE_URL, ATLAS_BASE_URL, ...)
-  db.py       # read-only Postgres query helper (Neon SQL-over-HTTP)
-  atlas.py    # OHDSI Atlas WebAPI client
-  tools.py    # @beta_tool-decorated tool functions
-  agent.py    # entry point that runs the tool-use loop
+  config.py         # env-based settings (DATABASE_URL, ATLAS_BASE_URL, ...)
+  db.py             # read-only Postgres query helper (Neon SQL-over-HTTP)
+  atlas.py          # OHDSI Atlas WebAPI client
+  cohort_schema.py  # OMOP-style cohort definition dataclasses + define_nsclc_cohort tool
+  tools.py          # @beta_tool-decorated tool functions
+  agent.py          # entry point that runs the tool-use loop
 tests/
   test_config.py
+  test_cohort_schema.py
 ```
 
 ## Setup
