@@ -88,10 +88,16 @@ if run:
             person_count = atlas.get_cohort_count(cohort_id, ATLAS_SOURCE_KEY)
             report = atlas.get_cohort_report(cohort_id, ATLAS_SOURCE_KEY)
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Base population", report["summary"]["baseCount"])
-        col2.metric("Final cohort", person_count)
-        col3.metric("% matched", report["summary"]["percentMatched"])
+        if report["inclusionRuleStats"]:
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Base population", report["summary"]["baseCount"])
+            col2.metric("Final cohort", person_count)
+            col3.metric("% matched", report["summary"]["percentMatched"])
+        else:
+            # No inclusion rules -> nothing for Atlas's attrition report to compute;
+            # it returns baseCount/finalCount 0 even though person_count is real.
+            st.metric("Person count", person_count)
+            st.caption("No inclusion rules were applied, so there's no attrition funnel to report.")
         st.json(report)
 
         st.subheader("Narrative summary")
@@ -99,7 +105,11 @@ if run:
             "name": cohort_json.get("name") or question,
             "source_key": ATLAS_SOURCE_KEY,
             "person_count": person_count,
-            "report": report,
+            # report's baseCount/finalCount are 0 when there are no inclusion
+            # rules (nothing for Atlas's attrition report to compute) -- don't
+            # feed that contradiction to summarize_cohort_results alongside
+            # the real person_count above.
+            "report": report if report["inclusionRuleStats"] else None,
         }
         with st.spinner("Writing summary..."):
             st.write(summarize_cohort_results(cohort_result, client=client))

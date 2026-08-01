@@ -92,14 +92,24 @@ def main() -> None:
             report = atlas.get_cohort_report(cohort_id, ATLAS_SOURCE_KEY)
 
             print(f"Person count: {person_count}")
-            print(f"Report: {json.dumps(report['summary'])}")
+            if report["inclusionRuleStats"]:
+                print(f"Report: {json.dumps(report['summary'])}")
+            else:
+                # No inclusion rules -> nothing for Atlas's attrition report to
+                # compute; it returns baseCount/finalCount 0 even though
+                # person_count above is the real, reliable number.
+                print("Report: no inclusion rules were applied, so there's no attrition funnel to report.")
 
             print("\n--- Narrative summary ---")
             cohort_result = {
                 "name": cohort_json.get("name") or question,
                 "source_key": ATLAS_SOURCE_KEY,
                 "person_count": person_count,
-                "report": report,
+                # report's baseCount/finalCount are 0 when there are no inclusion
+                # rules (nothing for Atlas's attrition report to compute) -- don't
+                # feed that contradiction to summarize_cohort_results alongside
+                # the real person_count above.
+                "report": report if report["inclusionRuleStats"] else None,
             }
             print(summarize_cohort_results(cohort_result, client=client))
             print()
