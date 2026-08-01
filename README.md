@@ -20,19 +20,24 @@ resources a clinical RWE workflow depends on:
 
 It's intentionally small in scope — a starting point to validate that this
 pattern (LLM + OMOP + Atlas) works end-to-end, not a production analytics
-tool. There's no cohort-building, no statistical analysis, and no PHI
-handling built in yet.
+tool. There's no statistical analysis and no PHI handling built in yet;
+cohort *definition* is a first draft (see below) and isn't yet wired to
+execute against the database.
 
 ## What's in the repo
 
 Prototype Claude API tool-use agent for NSCLC real-world evidence work. It
-gives Claude two tools:
+gives Claude three tools:
 
 - `query_omop_database` — read-only SQL (`SELECT`/`WITH` only) against a
   hosted Postgres instance holding an OMOP CDM, executed over Neon's
   SQL-over-HTTP endpoint rather than the raw Postgres wire protocol.
 - `search_atlas_vocabulary` — vocabulary search against an OHDSI Atlas
   WebAPI instance (defaults to the public demo at `atlas-demo.ohdsi.org`).
+- `define_cohort` — validates and normalizes a structured, OMOP-style
+  cohort definition (condition/drug concept sets, age/sex/race
+  demographics, observation window). See "Cohort definitions" below;
+  it doesn't execute the cohort against the database yet.
 
 Claude decides when to call each tool via the Anthropic SDK's beta tool
 runner (`client.beta.messages.tool_runner`), which drives the request →
@@ -45,10 +50,12 @@ src/nsclc_rwe/
   config.py   # env-based settings (DATABASE_URL, ATLAS_BASE_URL, ...)
   db.py       # read-only Postgres query helper (Neon SQL-over-HTTP)
   atlas.py    # OHDSI Atlas WebAPI client
+  cohort.py   # OMOP-style cohort definition schema + define_cohort tool
   tools.py    # @beta_tool-decorated tool functions
   agent.py    # entry point that runs the tool-use loop
 tests/
   test_config.py
+  test_cohort.py
 scripts/
   load_omop_data.py  # one-off loader for sample OMOP CDM data (see below)
 ```
@@ -113,6 +120,54 @@ results from it. Also, three tables (`drug_exposure`, `measurement`,
 `observation`) are loaded without a primary key: their source CSVs contain a
 few thousand duplicate surrogate-key values, a data-quality quirk in this
 particular trimmed export rather than something the loader introduces.
+
+## Cohort definitions
+
+`cohort.py` defines an OMOP-style cohort definition as a set of Pydantic
+models, modeled loosely on OHDSI Atlas's own cohort-expression JSON
+(`ConceptSets` + `PrimaryCriteria` + `DemographicCriteria` +
+`ObservationWindow`), scoped to what this prototype needs: condition/drug
+concept sets, age/sex/race demographics, and an observation window around
+the cohort's index date. Atlas's real format also covers inclusion-rule
+groups, censoring criteria, and several other criterion types (Visit,
+Measurement, Procedure, Death, ...); those aren't modeled here.
+
+The `define_cohort` tool (built from those models via `@beta_tool`, so its
+JSON schema is generated the same way as the other tools rather than
+hand-written) validates and normalizes a cohort definition — it checks
+things like "every criterion references a concept set that actually
+exists" and "an age range has both bounds" — and returns it as JSON. It
+doesn't execute the cohort against the database yet; that would mean
+compiling this structure into SQL against the OMOP tables, which is a
+natural next step but isn't built.
+
+Example input, drafting an NSCLC-on-osimertinib cohort (concept IDs would
+normally come from `search_atlas_vocabulary`):
+
+```json
+{
+  "cohort": {
+    "name": "Advanced NSCLC on osimertinib, 18-89",
+    "concept_sets": [
+      {
+        "id": 0, "name": "Non-small cell lung cancer", "domain": "Condition",
+        "items": [{"concept_id": 4115276, "concept_name": "Non-small cell lung cancer"}]
+      },
+      {
+        "id": 1, "name": "Osimertinib", "domain": "Drug",
+        "items": [{"concept_id": 35604931, "concept_name": "Osimertinib"}]
+      }
+    ],
+    "primary_criteria": {
+      "condition_occurrences": [{"concept_set_id": 0}],
+      "drug_exposures": [{"concept_set_id": 1}],
+      "combination": "ALL",
+      "observation_window": {"prior_days": 365, "post_days": 0}
+    },
+    "demographic_criteria": {"age": {"op": "between", "value": 18, "value_upper": 89}}
+  }
+}
+```
 
 ## Run
 
