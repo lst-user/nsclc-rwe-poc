@@ -49,7 +49,7 @@ execute → loop cycle automatically.
 ```
 src/nsclc_rwe/
   config.py   # env-based settings (DATABASE_URL, ATLAS_BASE_URL, ...)
-  db.py       # read-only Postgres query helper (Neon SQL-over-HTTP)
+  db.py       # read-only Postgres query helper (Neon SQL-over-HTTP) + search_concept
   atlas.py    # OHDSI Atlas WebAPI client
   cohort.py   # OMOP-style cohort definition schema + define_cohort tool
   tools.py    # @beta_tool-decorated tool functions
