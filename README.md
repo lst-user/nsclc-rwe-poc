@@ -378,6 +378,17 @@ to a file. Loops for at most 12 turns before giving up.
 
 ## Run
 
+`main.py` is an interactive loop tying the whole pipeline together end to
+end: type a clinical question, and for each one see the cohort definition
+JSON Claude builds (`nl_to_cohort`), the result of actually running it
+against a real Atlas WebAPI CDM data source (`atlas.py`), and a short
+narrative summary of those results (`summarize.py`). Blank line or Ctrl-D
+to quit.
+
+```bash
+python main.py
+```
+
 ```bash
 python -m nsclc_rwe.agent "Search the Atlas vocabulary for non-small cell lung cancer concepts"
 ```
