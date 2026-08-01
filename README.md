@@ -61,11 +61,13 @@ src/nsclc_rwe/
   atlas.py    # OHDSI Atlas WebAPI client
   cohort.py   # OMOP-style cohort definition schema + define_cohort tool
   tools.py    # @beta_tool-decorated tool functions
-  agent.py    # entry point that runs the tool-use loop
+  agent.py    # entry point that runs the full 4-tool loop
+  nl_to_cohort.py  # entry point: NL question -> cohort definition JSON
 tests/
   test_config.py
   test_cohort.py
   test_db.py
+  test_nl_to_cohort.py
   test_tools.py
 scripts/
   load_omop_data.py     # one-off loader for sample OMOP CDM data (see below)
@@ -270,6 +272,23 @@ baseline brain metastasis, ending the cohort era on a gap in drug exposure
   }
 }
 ```
+
+### Drafting a cohort definition from a natural-language question
+
+`nl_to_cohort.py` is a focused entry point (separate from `agent.py`'s full
+4-tool loop) that gives Claude only `search_omop_concept` and `define_cohort`,
+then drives the tool loop until `define_cohort` succeeds:
+
+```bash
+python -m nsclc_rwe.nl_to_cohort "Adults with NSCLC on first-line osimertinib" > cohort.json
+```
+
+Claude looks up real concept_ids with `search_omop_concept` first (never
+inventing one), then calls `define_cohort`; if that returns a validation
+error, Claude sees it and retries with a corrected definition. Progress
+(Claude's own commentary, each tool call) goes to stderr, so only the final,
+validated cohort definition JSON lands on stdout — safe to redirect straight
+to a file. Loops for at most 12 turns before giving up.
 
 ## Run
 
