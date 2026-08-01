@@ -195,3 +195,33 @@ def test_run_cohort_creates_generates_and_returns_count(monkeypatch):
     assert count == 228
     assert ("post", "/cohortdefinition") in calls
     assert ("get", "/cohortdefinition/42/generate/SYNPUF1K") in calls
+
+
+def test_get_cohort_report_returns_summary_and_inclusion_rule_stats(monkeypatch):
+    captured = {}
+
+    def fake_get(url, params=None):
+        captured["url"] = url
+        captured["params"] = params
+        return _FakeResponse(
+            200,
+            {
+                "summary": {"baseCount": 3880, "finalCount": 3, "lostCount": 0, "percentMatched": "0.08%"},
+                "inclusionRuleStats": [
+                    {"name": "Treated with erlotinib on or after diagnosis", "countSatisfying": 3}
+                ],
+                "treemapData": "{...}",
+            },
+        )
+
+    client = _client()
+    monkeypatch.setattr(client._client, "get", fake_get)
+
+    report = client.get_cohort_report(42, source_key="SYNPUF5PCT")
+
+    assert captured["url"] == "/cohortdefinition/42/report/SYNPUF5PCT"
+    assert captured["params"] == {"refresh": "true"}
+    assert report["summary"]["baseCount"] == 3880
+    assert report["summary"]["finalCount"] == 3
+    assert report["inclusionRuleStats"][0]["countSatisfying"] == 3
+    assert "treemapData" not in report

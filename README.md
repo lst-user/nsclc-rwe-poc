@@ -275,6 +275,39 @@ osimertinib + Asian-women cohort round-tripped through `create_cohort_definition
 translation rules found by comparing against real fetched cohort definitions
 (`/cohortdefinition/99285`, `/101431`, `/158059`).
 
+`AtlasClient.get_cohort_report(cohort_id, source_key=None)` fetches Atlas's
+inclusion-rule attrition report for an already-generated cohort
+(`/cohortdefinition/{id}/report/{sourceKey}`) — how many people matched the
+primary criteria (`baseCount`), how many remained after each inclusion rule,
+and the final count. A separate, deeper per-analysis characterization
+endpoint (`/cohortresults/{sourceKey}/{id}`, Achilles-style age/gender/
+condition breakdowns) exists on the server but its detail-retrieval shape
+isn't documented anywhere reachable from this demo instance and wasn't
+findable by trial and error within reasonable effort, so it isn't wired up.
+
+### Summarizing cohort results with Claude
+
+`summarize.py`'s `summarize_cohort_results(cohort_result, client=None)` takes
+a `{"name", "source_key", "person_count", "report"}` dict — the outputs of
+`run_cohort()` and `get_cohort_report()` — and asks Claude for a short,
+abstract-style summary paragraph. The system prompt instructs it to ground
+every sentence in the numbers given and not invent patient-level detail
+(demographics, dates, outcomes) that wasn't actually retrieved, since only
+aggregate counts and attrition stats are available, not row-level data.
+`client` is injectable for testing; defaults to `anthropic.Anthropic()`.
+
+Verified live: a real "Malignant tumor of lung, treated with erlotinib"
+cohort (3,880 base population → 3 final, `SYNPUF5PCT`) produced:
+
+> We conducted a retrospective cohort study using the SYNPUF5PCT data source
+> to identify patients with a malignant tumor of the lung who were
+> subsequently treated with erlotinib. From a base population of 3,880
+> individuals with a lung malignancy, we applied a single inclusion
+> criterion requiring treatment with erlotinib on or after diagnosis. This
+> rule excluded 99.92% of the base population, leaving 3 patients (0.08%)
+> who satisfied the requirement. The final cohort therefore comprised 3
+> persons.
+
 Example: an NSCLC cohort on first-line osimertinib, excluding patients with
 baseline brain metastasis, ending the cohort era on a gap in drug exposure
 (concepts would normally come from `search_atlas_vocabulary`):

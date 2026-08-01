@@ -155,5 +155,19 @@ class AtlasClient:
         self.generate_cohort(cohort_id, source_key)
         return self.get_cohort_count(cohort_id, source_key)
 
+    def get_cohort_report(self, cohort_id: int, source_key: str | None = None) -> dict:
+        """Fetch Atlas's inclusion-rule attrition report for an already-generated
+        cohort: how many people matched the primary criteria (baseCount), how
+        many remained after each inclusion rule, and the final count -- e.g.
+        {"summary": {"baseCount": 3880, "finalCount": 3, "percentMatched": "0.08%"},
+         "inclusionRuleStats": [{"name": ..., "countSatisfying": 3, ...}]}."""
+        resp = self._client.get(
+            f"/cohortdefinition/{cohort_id}/report/{source_key or self._source_key}",
+            params={"refresh": "true"},
+        )
+        resp.raise_for_status()
+        report = resp.json()
+        return {"summary": report.get("summary"), "inclusionRuleStats": report.get("inclusionRuleStats")}
+
     def close(self) -> None:
         self._client.close()
