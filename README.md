@@ -49,6 +49,8 @@ src/nsclc_rwe/
   agent.py    # entry point that runs the tool-use loop
 tests/
   test_config.py
+scripts/
+  load_omop_data.py  # one-off loader for sample OMOP CDM data (see below)
 ```
 
 ## Setup
@@ -85,10 +87,41 @@ Note there's no dedicated secrets store for this yet — anything set there
 is stored in plain text and visible to anyone who can edit that
 environment.
 
+## Sample data
+
+The hosted Postgres database starts out empty — `query_omop_database` has
+nothing to query until an OMOP CDM is loaded into it. For local dev/demo
+purposes, `scripts/load_omop_data.py` populates it with
+[OHDSI's GiBleed dataset](https://github.com/OHDSI/EunomiaDatasets/tree/main/datasets/GiBleed) —
+a small (~2,700 patient), publicly hosted OMOP CDM v5.3 test dataset with a
+trimmed vocabulary subset:
+
+```bash
+python scripts/load_omop_data.py
+```
+
+It downloads the OMOP CDM v5.3 DDL (from OHDSI's `CommonDataModel` repo) and
+the GiBleed CSVs (from `EunomiaDatasets`), both over HTTPS from
+`raw.githubusercontent.com`, then creates the schema and loads every table
+via Neon's SQL-over-HTTP endpoint — the same one `db.py` uses, since raw
+Postgres connections don't work in this environment either (see above).
+Re-running it is safe: it drops and recreates all 37 tables first.
+
+Note: GiBleed is a GI-bleeding cohort, not lung cancer — it's useful for
+proving the query pipeline works end-to-end, but don't expect NSCLC-specific
+results from it. Also, three tables (`drug_exposure`, `measurement`,
+`observation`) are loaded without a primary key: their source CSVs contain a
+few thousand duplicate surrogate-key values, a data-quality quirk in this
+particular trimmed export rather than something the loader introduces.
+
 ## Run
 
 ```bash
 python -m nsclc_rwe.agent "Search the Atlas vocabulary for non-small cell lung cancer concepts"
+```
+
+```bash
+python -m nsclc_rwe.agent "How many patients are in the OMOP database, and what are the five most common conditions?"
 ```
 
 ## Tests
