@@ -253,9 +253,27 @@ hand-written) validates and normalizes a cohort definition — referential
 integrity between criteria/`AdditionalCriteria`/`EndStrategy` and concept
 sets, criterion/concept-set domain agreement, `AT_LEAST`/`AT_MOST` groups
 having a `Count`, `bt`/`nbt` ranges having an `Extent` — and returns it as
-JSON. It doesn't execute the cohort against the database yet; that would
-mean compiling this structure into SQL against the OMOP tables, which is a
-natural next step but isn't built.
+JSON.
+
+### Running a cohort definition on Atlas
+
+`AtlasClient.run_cohort(name, cohort_expression, source_key=None)` takes a
+`define_cohort()` result and executes it for real: POSTs it to Atlas's
+`/cohortdefinition` endpoint, triggers generation against a CDM data source
+(`/cohortdefinition/{id}/generate/{sourceKey}`, an async job), polls
+`/cohortdefinition/{id}/info` until it completes, and returns the person
+count. `create_cohort_definition`, `generate_cohort`, and `get_cohort_count`
+are also available individually.
+
+Since `cohort.py`'s internal representation deliberately deviates from
+Atlas's own wire format (the explicit `criterion_type`/`strategy_type`
+discriminators and descriptive `Occurrence.Type`/`Window.Coeff` strings
+documented above), `_to_atlas_expression()` translates one into the other
+first. Verified live against `atlas-demo.ohdsi.org`: a real NSCLC +
+osimertinib + Asian-women cohort round-tripped through `create_cohort_definition`
+→ `generate_cohort` → `get_cohort_count` against `SYNPUF1K`, matching the
+translation rules found by comparing against real fetched cohort definitions
+(`/cohortdefinition/99285`, `/101431`, `/158059`).
 
 Example: an NSCLC cohort on first-line osimertinib, excluding patients with
 baseline brain metastasis, ending the cohort era on a gap in drug exposure
