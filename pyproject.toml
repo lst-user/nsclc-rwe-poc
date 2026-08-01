@@ -12,6 +12,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+web = ["streamlit>=1.38"]
 
 [project.scripts]
 nsclc-agent = "nsclc_rwe.agent:main"

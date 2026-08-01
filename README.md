@@ -395,6 +395,25 @@ accumulates on the shared public demo server across runs.
 python main.py
 ```
 
+`app.py` is the same pipeline as a browser UI (Streamlit) instead of a
+terminal loop -- same question box, same three sections (generated cohort
+definition JSON, Atlas query result with base/final/percent-matched metrics,
+narrative summary), same hardcoded `SYNPUF5PCT` + delete-after-use cleanup
+behavior as `main.py`.
+
+```bash
+pip install -e ".[web]"
+streamlit run app.py
+```
+
+Verified live end to end with a real browser (Playwright driving the
+pre-installed Chromium against a locally-running `streamlit run app.py`):
+typed a question, clicked Run, and watched it produce a real cohort
+definition, a real Atlas query result, and a real narrative summary,
+rendered in the actual page -- not simulated. The Atlas cohort created
+during that run was confirmed deleted afterward via the same
+`/cohortdefinition` listing check used elsewhere in this README.
+
 ```bash
 python -m nsclc_rwe.agent "Search the Atlas vocabulary for non-small cell lung cancer concepts"
 ```
