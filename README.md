@@ -20,19 +20,25 @@ resources a clinical RWE workflow depends on:
 
 It's intentionally small in scope — a starting point to validate that this
 pattern (LLM + OMOP + Atlas) works end-to-end, not a production analytics
-tool. There's no cohort-building, no statistical analysis, and no PHI
-handling built in yet.
+tool. There's no statistical analysis and no PHI handling built in yet;
+cohort *definition* is a first draft (see below) and isn't yet wired to
+execute against the database.
 
 ## What's in the repo
 
 Prototype Claude API tool-use agent for NSCLC real-world evidence work. It
-gives Claude two tools:
+gives Claude three tools:
 
 - `query_omop_database` — read-only SQL (`SELECT`/`WITH` only) against a
   hosted Postgres instance holding an OMOP CDM, executed over Neon's
   SQL-over-HTTP endpoint rather than the raw Postgres wire protocol.
 - `search_atlas_vocabulary` — vocabulary search against an OHDSI Atlas
   WebAPI instance (defaults to the public demo at `atlas-demo.ohdsi.org`).
+- `define_cohort` — validates and normalizes a structured, OMOP-style
+  cohort definition, modeled on OHDSI Atlas's full CIRCE cohort-expression
+  format (concept sets, ~16 clinical-event criterion types, inclusion
+  rules, censoring criteria, end strategy). See "Cohort definitions"
+  below; it doesn't execute the cohort against the database yet.
 
 Claude decides when to call each tool via the Anthropic SDK's beta tool
 runner (`client.beta.messages.tool_runner`), which drives the request →
@@ -45,10 +51,12 @@ src/nsclc_rwe/
   config.py   # env-based settings (DATABASE_URL, ATLAS_BASE_URL, ...)
   db.py       # read-only Postgres query helper (Neon SQL-over-HTTP)
   atlas.py    # OHDSI Atlas WebAPI client
+  cohort.py   # OMOP-style cohort definition schema + define_cohort tool
   tools.py    # @beta_tool-decorated tool functions
   agent.py    # entry point that runs the tool-use loop
 tests/
   test_config.py
+  test_cohort.py
 scripts/
   load_omop_data.py  # one-off loader for sample OMOP CDM data (see below)
 ```
@@ -113,6 +121,97 @@ results from it. Also, three tables (`drug_exposure`, `measurement`,
 `observation`) are loaded without a primary key: their source CSVs contain a
 few thousand duplicate surrogate-key values, a data-quality quirk in this
 particular trimmed export rather than something the loader introduces.
+
+## Cohort definitions
+
+`cohort.py` defines an OMOP-style cohort definition as a set of Pydantic
+models, modeled on OHDSI Atlas's own CIRCE cohort-expression JSON (see
+[circe-be](https://github.com/OHDSI/circe-be)) at close to its full
+breadth:
+
+- **Concept sets** of standard OMOP concepts (descendants/mapped/excluded flags).
+- **~16 clinical-event criterion types** — `ConditionOccurrence`, `DrugExposure`,
+  `ProcedureOccurrence`, `Measurement`, `Observation`, `Death`, `DeviceExposure`,
+  `Specimen`, `VisitOccurrence`, `VisitDetail`, `ObservationPeriod`,
+  `ConditionEra`, `DrugEra`, `DoseEra`, `PayerPlanPeriod`, `LocationRegion` —
+  as a discriminated union (`criterion_type`), each with its own domain-specific
+  filters (e.g. `Measurement.value_as_number`, `DrugExposure.days_supply`).
+- **Primary criteria** defining the cohort index event.
+- **Inclusion rules**: recursive `CriteriaGroup`s (`ALL`/`ANY`/`AT_LEAST`/`AT_MOST`)
+  combining correlated criteria (each within its own `Window` relative to the
+  index date), demographic filters (age/sex/race/ethnicity), and nested subgroups.
+- **Censoring criteria**, an **end strategy** (date offset or custom drug-era),
+  and **collapse settings**.
+
+Two deliberate deviations from Atlas's own wire format, documented in the
+module docstring: criteria carry an explicit `criterion_type` discriminator
+instead of Atlas's "exactly one key present" polymorphism, and enum-like
+fields use descriptive strings (`"at_least"`) instead of Atlas's numeric
+type codes. Concept sets have no fixed domain, same as real Atlas — the
+validator instead checks that concept sets referenced by a given criterion
+type actually contain concepts of the expected domain (e.g. a
+`DrugExposure` criterion pointing at a concept set full of `Condition`
+concepts is rejected), for the domains where that's well-defined.
+
+The `define_cohort` tool (built from those models via `@beta_tool`, so its
+JSON schema is generated the same way as the other tools rather than
+hand-written) validates and normalizes a cohort definition — referential
+integrity between criteria and concept sets, criterion/concept-set domain
+agreement, `AT_LEAST`/`AT_MOST` groups having a count, `bt`/`nbt` ranges
+having both bounds — and returns it as JSON. It doesn't execute the cohort
+against the database yet; that would mean compiling this structure into
+SQL against the OMOP tables, which is a natural next step but isn't built.
+
+Example: an NSCLC cohort on first-line osimertinib, excluding patients with
+baseline brain metastasis, ending the cohort era on a gap in drug exposure
+(concept IDs would normally come from `search_atlas_vocabulary`):
+
+```json
+{
+  "cohort": {
+    "name": "Advanced NSCLC, EGFR TKI treated, no baseline brain mets",
+    "concept_sets": [
+      {"id": 0, "name": "NSCLC", "items": [
+        {"concept": {"concept_id": 4115276, "concept_name": "Non-small cell lung cancer", "domain_id": "Condition", "vocabulary_id": "SNOMED", "standard_concept": "S"}}
+      ]},
+      {"id": 1, "name": "Osimertinib", "items": [
+        {"concept": {"concept_id": 35604931, "concept_name": "Osimertinib", "domain_id": "Drug", "vocabulary_id": "RxNorm", "standard_concept": "S"}}
+      ]},
+      {"id": 2, "name": "Brain metastasis", "items": [
+        {"concept": {"concept_id": 4300544, "concept_name": "Secondary malignant neoplasm of brain", "domain_id": "Condition", "vocabulary_id": "SNOMED", "standard_concept": "S"}}
+      ]}
+    ],
+    "primary_criteria": {
+      "criteria_list": [{"criterion_type": "DrugExposure", "concept_set_id": 1, "first": true}],
+      "observation_window": {"prior_days": 365, "post_days": 0}
+    },
+    "inclusion_rules": [
+      {
+        "name": "Has NSCLC diagnosis before or on index",
+        "expression": {
+          "type": "ALL",
+          "criteria_list": [{
+            "criterion": {"criterion_type": "ConditionOccurrence", "concept_set_id": 0},
+            "start_window": {"start": {"direction": "before"}, "end": {"days": 0, "direction": "after"}}
+          }]
+        }
+      },
+      {
+        "name": "No brain metastasis before index",
+        "expression": {
+          "type": "AT_MOST",
+          "count": 0,
+          "criteria_list": [{
+            "criterion": {"criterion_type": "ConditionOccurrence", "concept_set_id": 2},
+            "start_window": {"start": {"direction": "before"}, "end": {"days": 0, "direction": "before"}}
+          }]
+        }
+      }
+    ],
+    "end_strategy": {"strategy_type": "custom_era", "drug_concept_set_id": 1, "gap_days": 30}
+  }
+}
+```
 
 ## Run
 
