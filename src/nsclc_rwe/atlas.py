@@ -169,5 +169,10 @@ class AtlasClient:
         report = resp.json()
         return {"summary": report.get("summary"), "inclusionRuleStats": report.get("inclusionRuleStats")}
 
+    def delete_cohort_definition(self, cohort_id: int) -> None:
+        """Delete a cohort definition (and its generated results) from Atlas."""
+        resp = self._client.delete(f"/cohortdefinition/{cohort_id}")
+        resp.raise_for_status()
+
     def close(self) -> None:
         self._client.close()

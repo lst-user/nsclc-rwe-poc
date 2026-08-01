@@ -6,6 +6,13 @@ Type a clinical question, and for each one see: the cohort definition JSON
 Claude builds (nl_to_cohort), the result of actually running it against a
 real Atlas WebAPI CDM data source (atlas.py), and a short narrative summary
 of those results (summarize.py). Blank line or Ctrl-D to quit.
+
+Always queries SYNPUF5PCT (~100x larger than SYNPUF1K, the config default)
+regardless of ATLAS_SOURCE_KEY -- this loop is for exploring real questions,
+where the bigger sample matters, not the small-sample-size validation checks
+SYNPUF1K was used for earlier. Each cohort definition created on Atlas is
+deleted again once its results are in hand, so nothing accumulates on the
+shared public demo server across runs.
 """
 
 import json
@@ -18,6 +25,8 @@ from nsclc_rwe.config import load_settings
 from nsclc_rwe.nl_to_cohort import MAX_ITERATIONS, SYSTEM_PROMPT, extract_cohort_result
 from nsclc_rwe.summarize import summarize_cohort_results
 from nsclc_rwe.tools import search_omop_concept
+
+ATLAS_SOURCE_KEY = "SYNPUF5PCT"
 
 
 def build_cohort_definition(question: str, client: anthropic.Anthropic, settings) -> dict | None:
@@ -50,7 +59,7 @@ def main() -> None:
     atlas = AtlasClient(settings)
 
     print("NSCLC RWE prototype -- type a clinical question (blank line to quit).")
-    print(f"Atlas source: {settings.atlas_source_key}\n")
+    print(f"Atlas source: {ATLAS_SOURCE_KEY}\n")
 
     while True:
         try:
@@ -70,29 +79,34 @@ def main() -> None:
         print("\n--- Generated cohort definition JSON ---")
         print(json.dumps(cohort_json, indent=2))
 
-        print(f"\n--- Atlas query ({settings.atlas_source_key}) ---")
+        print(f"\n--- Atlas query ({ATLAS_SOURCE_KEY}) ---")
         try:
             cohort_id = atlas.create_cohort_definition(cohort_json.get("name") or question, cohort_json)
-            atlas.generate_cohort(cohort_id, settings.atlas_source_key)
-            person_count = atlas.get_cohort_count(cohort_id, settings.atlas_source_key)
-            report = atlas.get_cohort_report(cohort_id, settings.atlas_source_key)
         except Exception as e:  # network/generation failures shouldn't kill the loop
             print(f"Atlas query failed: {e}\n")
             continue
 
-        print(f"Atlas cohort definition id: {cohort_id}")
-        print(f"Person count: {person_count}")
-        print(f"Report: {json.dumps(report['summary'])}")
+        try:
+            atlas.generate_cohort(cohort_id, ATLAS_SOURCE_KEY)
+            person_count = atlas.get_cohort_count(cohort_id, ATLAS_SOURCE_KEY)
+            report = atlas.get_cohort_report(cohort_id, ATLAS_SOURCE_KEY)
 
-        print("\n--- Narrative summary ---")
-        cohort_result = {
-            "name": cohort_json.get("name") or question,
-            "source_key": settings.atlas_source_key,
-            "person_count": person_count,
-            "report": report,
-        }
-        print(summarize_cohort_results(cohort_result, client=client))
-        print()
+            print(f"Person count: {person_count}")
+            print(f"Report: {json.dumps(report['summary'])}")
+
+            print("\n--- Narrative summary ---")
+            cohort_result = {
+                "name": cohort_json.get("name") or question,
+                "source_key": ATLAS_SOURCE_KEY,
+                "person_count": person_count,
+                "report": report,
+            }
+            print(summarize_cohort_results(cohort_result, client=client))
+            print()
+        except Exception as e:
+            print(f"Atlas query failed: {e}\n")
+        finally:
+            atlas.delete_cohort_definition(cohort_id)
 
 
 if __name__ == "__main__":

@@ -225,3 +225,18 @@ def test_get_cohort_report_returns_summary_and_inclusion_rule_stats(monkeypatch)
     assert report["summary"]["finalCount"] == 3
     assert report["inclusionRuleStats"][0]["countSatisfying"] == 3
     assert "treemapData" not in report
+
+
+def test_delete_cohort_definition_calls_delete_endpoint(monkeypatch):
+    captured = {}
+
+    def fake_delete(url):
+        captured["url"] = url
+        return _FakeResponse(204, None)
+
+    client = _client()
+    monkeypatch.setattr(client._client, "delete", fake_delete)
+
+    client.delete_cohort_definition(42)
+
+    assert captured["url"] == "/cohortdefinition/42"

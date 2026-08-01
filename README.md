@@ -383,7 +383,13 @@ end: type a clinical question, and for each one see the cohort definition
 JSON Claude builds (`nl_to_cohort`), the result of actually running it
 against a real Atlas WebAPI CDM data source (`atlas.py`), and a short
 narrative summary of those results (`summarize.py`). Blank line or Ctrl-D
-to quit.
+to quit. Always queries `SYNPUF5PCT` (hardcoded, ~100x larger than
+`SYNPUF1K`, the config default used elsewhere) regardless of
+`ATLAS_SOURCE_KEY` -- this loop is for exploring real questions, where the
+bigger sample matters. Each cohort definition it creates on Atlas is
+deleted again once its results are in hand (`finally`-guarded, so cleanup
+runs even if generation or summarization fails partway through), so nothing
+accumulates on the shared public demo server across runs.
 
 ```bash
 python main.py
