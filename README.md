@@ -125,29 +125,45 @@ particular trimmed export rather than something the loader introduces.
 ## Cohort definitions
 
 `cohort.py` defines an OMOP-style cohort definition as a set of Pydantic
-models, modeled on OHDSI Atlas's own CIRCE cohort-expression JSON (see
-[circe-be](https://github.com/OHDSI/circe-be)) at close to its full
-breadth:
+models, matching OHDSI Atlas's own CIRCE cohort-expression JSON field names
+(see [circe-be](https://github.com/OHDSI/circe-be)) — verified by live-fetching
+several real cohort definitions from `atlas-demo.ohdsi.org`'s WebAPI
+(`/cohortdefinition/99285`, `/101431`, `/158059`) rather than reconstructed
+from memory:
 
-- **Concept sets** of standard OMOP concepts (descendants/mapped/excluded flags).
+- **Concept sets** (`ConceptSets`) of standard OMOP concepts
+  (`includeDescendants`/`includeMapped`/`isExcluded` flags).
 - **~16 clinical-event criterion types** — `ConditionOccurrence`, `DrugExposure`,
   `ProcedureOccurrence`, `Measurement`, `Observation`, `Death`, `DeviceExposure`,
   `Specimen`, `VisitOccurrence`, `VisitDetail`, `ObservationPeriod`,
   `ConditionEra`, `DrugEra`, `DoseEra`, `PayerPlanPeriod`, `LocationRegion` —
   as a discriminated union (`criterion_type`), each with its own domain-specific
-  filters (e.g. `Measurement.value_as_number`, `DrugExposure.days_supply`).
-- **Primary criteria** defining the cohort index event.
-- **Inclusion rules**: recursive `CriteriaGroup`s (`ALL`/`ANY`/`AT_LEAST`/`AT_MOST`)
-  combining correlated criteria (each within its own `Window` relative to the
-  index date), demographic filters (age/sex/race/ethnicity), and nested subgroups.
-- **Censoring criteria**, an **end strategy** (date offset or custom drug-era),
+  filters (e.g. `Measurement.ValueAsNumber`, `DrugExposure.DaysSupply`) and,
+  where Atlas has one, a `*TypeExclude` flag alongside its `*Type` filter.
+- **Primary criteria** (`PrimaryCriteria`) defining the cohort index event,
+  plus a same-shaped top-level `AdditionalCriteria` group applied alongside it.
+- **Inclusion rules** (`InclusionRules`): recursive `CriteriaGroup`s
+  (`ALL`/`ANY`/`AT_LEAST`/`AT_MOST`) combining correlated criteria (each
+  within its own `Window` relative to the index date), demographic filters
+  (age/gender/race/ethnicity), and nested subgroups.
+- **Censoring criteria**, an **end strategy** (`DateOffset` or `CustomEra`),
   and **collapse settings**.
 
-Two deliberate deviations from Atlas's own wire format, documented in the
-module docstring: criteria carry an explicit `criterion_type` discriminator
-instead of Atlas's "exactly one key present" polymorphism, and enum-like
-fields use descriptive strings (`"at_least"`) instead of Atlas's numeric
-type codes. Concept sets have no fixed domain, same as real Atlas — the
+Real Atlas's own casing is genuinely inconsistent, and this mirrors that
+rather than imposing a cleaner convention: most criteria/structural fields
+are PascalCase (`CodesetId`, `Age`), `ConceptSet`/`InclusionRule`'s own
+wrapper keys are camelCase (`id`, `name`, `expression`), `cdmVersionRange`
+is camelCase, and concept rows are SCREAMING_SNAKE_CASE (`CONCEPT_ID`,
+matching `search_atlas_vocabulary`'s own output, so results from one tool
+can be dropped straight into the other without reshaping).
+
+Two remaining *intentional* deviations, documented in the module docstring:
+criteria carry an explicit `criterion_type` discriminator instead of
+Atlas's "exactly one key present" polymorphism (e.g. `{"ConditionOccurrence": {...}}`),
+and `Occurrence.Type`/`Window`'s `Coeff` use descriptive strings
+(`"at_least"`, `"before"`) instead of Atlas's numeric codes (`Type: 0/1/2`,
+`Coeff: -1/1`) — the field names match Atlas either way, only these two
+values don't. Concept sets have no fixed domain, same as real Atlas — the
 validator instead checks that concept sets referenced by a given criterion
 type actually contain concepts of the expected domain (e.g. a
 `DrugExposure` criterion pointing at a concept set full of `Condition`
@@ -156,59 +172,60 @@ concepts is rejected), for the domains where that's well-defined.
 The `define_cohort` tool (built from those models via `@beta_tool`, so its
 JSON schema is generated the same way as the other tools rather than
 hand-written) validates and normalizes a cohort definition — referential
-integrity between criteria and concept sets, criterion/concept-set domain
-agreement, `AT_LEAST`/`AT_MOST` groups having a count, `bt`/`nbt` ranges
-having both bounds — and returns it as JSON. It doesn't execute the cohort
-against the database yet; that would mean compiling this structure into
-SQL against the OMOP tables, which is a natural next step but isn't built.
+integrity between criteria/`AdditionalCriteria`/`EndStrategy` and concept
+sets, criterion/concept-set domain agreement, `AT_LEAST`/`AT_MOST` groups
+having a `Count`, `bt`/`nbt` ranges having an `Extent` — and returns it as
+JSON. It doesn't execute the cohort against the database yet; that would
+mean compiling this structure into SQL against the OMOP tables, which is a
+natural next step but isn't built.
 
 Example: an NSCLC cohort on first-line osimertinib, excluding patients with
 baseline brain metastasis, ending the cohort era on a gap in drug exposure
-(concept IDs would normally come from `search_atlas_vocabulary`):
+(concepts would normally come from `search_atlas_vocabulary`):
 
 ```json
 {
   "cohort": {
     "name": "Advanced NSCLC, EGFR TKI treated, no baseline brain mets",
-    "concept_sets": [
-      {"id": 0, "name": "NSCLC", "items": [
-        {"concept": {"concept_id": 4115276, "concept_name": "Non-small cell lung cancer", "domain_id": "Condition", "vocabulary_id": "SNOMED", "standard_concept": "S"}}
-      ]},
-      {"id": 1, "name": "Osimertinib", "items": [
-        {"concept": {"concept_id": 35604931, "concept_name": "Osimertinib", "domain_id": "Drug", "vocabulary_id": "RxNorm", "standard_concept": "S"}}
-      ]},
-      {"id": 2, "name": "Brain metastasis", "items": [
-        {"concept": {"concept_id": 4300544, "concept_name": "Secondary malignant neoplasm of brain", "domain_id": "Condition", "vocabulary_id": "SNOMED", "standard_concept": "S"}}
-      ]}
+    "ConceptSets": [
+      {"id": 0, "name": "NSCLC", "expression": {"items": [
+        {"concept": {"CONCEPT_ID": 4115276, "CONCEPT_NAME": "Non-small cell lung cancer", "DOMAIN_ID": "Condition", "VOCABULARY_ID": "SNOMED", "STANDARD_CONCEPT": "S"}}
+      ]}},
+      {"id": 1, "name": "Osimertinib", "expression": {"items": [
+        {"concept": {"CONCEPT_ID": 35604931, "CONCEPT_NAME": "Osimertinib", "DOMAIN_ID": "Drug", "VOCABULARY_ID": "RxNorm", "STANDARD_CONCEPT": "S"}}
+      ]}},
+      {"id": 2, "name": "Brain metastasis", "expression": {"items": [
+        {"concept": {"CONCEPT_ID": 4300544, "CONCEPT_NAME": "Secondary malignant neoplasm of brain", "DOMAIN_ID": "Condition", "VOCABULARY_ID": "SNOMED", "STANDARD_CONCEPT": "S"}}
+      ]}}
     ],
-    "primary_criteria": {
-      "criteria_list": [{"criterion_type": "DrugExposure", "concept_set_id": 1, "first": true}],
-      "observation_window": {"prior_days": 365, "post_days": 0}
+    "PrimaryCriteria": {
+      "CriteriaList": [{"criterion_type": "DrugExposure", "CodesetId": 1, "First": true}],
+      "ObservationWindow": {"PriorDays": 365, "PostDays": 0}
     },
-    "inclusion_rules": [
+    "InclusionRules": [
       {
         "name": "Has NSCLC diagnosis before or on index",
         "expression": {
-          "type": "ALL",
-          "criteria_list": [{
-            "criterion": {"criterion_type": "ConditionOccurrence", "concept_set_id": 0},
-            "start_window": {"start": {"direction": "before"}, "end": {"days": 0, "direction": "after"}}
+          "Type": "ALL",
+          "CriteriaList": [{
+            "Criteria": {"criterion_type": "ConditionOccurrence", "CodesetId": 0},
+            "StartWindow": {"Start": {"Coeff": "before"}, "End": {"Days": 0, "Coeff": "after"}}
           }]
         }
       },
       {
         "name": "No brain metastasis before index",
         "expression": {
-          "type": "AT_MOST",
-          "count": 0,
-          "criteria_list": [{
-            "criterion": {"criterion_type": "ConditionOccurrence", "concept_set_id": 2},
-            "start_window": {"start": {"direction": "before"}, "end": {"days": 0, "direction": "before"}}
+          "Type": "AT_MOST",
+          "Count": 0,
+          "CriteriaList": [{
+            "Criteria": {"criterion_type": "ConditionOccurrence", "CodesetId": 2},
+            "StartWindow": {"Start": {"Coeff": "before"}, "End": {"Days": 0, "Coeff": "before"}}
           }]
         }
       }
     ],
-    "end_strategy": {"strategy_type": "custom_era", "drug_concept_set_id": 1, "gap_days": 30}
+    "EndStrategy": {"strategy_type": "custom_era", "CustomEra": {"DrugCodesetId": 1, "GapDays": 30}}
   }
 }
 ```
