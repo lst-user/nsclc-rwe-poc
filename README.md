@@ -35,12 +35,13 @@ gives Claude four tools:
 - `search_atlas_vocabulary` — vocabulary search against an OHDSI Atlas
   WebAPI instance (defaults to the public demo at `atlas-demo.ohdsi.org`).
 - `search_omop_concept` — vocabulary search against the CONCEPT table in
-  *this* database's own loaded OMOP vocabulary (e.g. GiBleed's trimmed
-  subset), filtered by domain. Distinct from `search_atlas_vocabulary`:
-  that hits Atlas's external demo vocabulary snapshot, which isn't
-  necessarily the same vocabulary as what's actually loaded here — use
-  this one when you need a concept_id guaranteed to exist in this
-  database.
+  *this* database's own loaded OMOP vocabulary, filtered by domain.
+  Distinct from `search_atlas_vocabulary`: that hits Atlas's external demo
+  vocabulary snapshot, which isn't necessarily the same vocabulary as
+  what's actually loaded here — use this one when you need a concept_id
+  guaranteed to exist in this database. See "Sample data" below for what's
+  actually loaded (GiBleed's patient data + a merged-in broader vocabulary,
+  since GiBleed's own vocabulary is too narrow on its own).
 - `define_cohort` — validates and normalizes a structured, OMOP-style
   cohort definition, modeled on OHDSI Atlas's full CIRCE cohort-expression
   format (concept sets, ~16 clinical-event criterion types, inclusion
@@ -64,8 +65,11 @@ src/nsclc_rwe/
 tests/
   test_config.py
   test_cohort.py
+  test_db.py
+  test_tools.py
 scripts/
-  load_omop_data.py  # one-off loader for sample OMOP CDM data (see below)
+  load_omop_data.py     # one-off loader for sample OMOP CDM data (see below)
+  merge_vocabulary.py   # one-off: merge in a broader vocabulary (see below)
 ```
 
 ## Setup
@@ -123,11 +127,41 @@ Postgres connections don't work in this environment either (see above).
 Re-running it is safe: it drops and recreates all 37 tables first.
 
 Note: GiBleed is a GI-bleeding cohort, not lung cancer — it's useful for
-proving the query pipeline works end-to-end, but don't expect NSCLC-specific
-results from it. Also, three tables (`drug_exposure`, `measurement`,
-`observation`) are loaded without a primary key: their source CSVs contain a
-few thousand duplicate surrogate-key values, a data-quality quirk in this
-particular trimmed export rather than something the loader introduces.
+proving `query_omop_database`'s pipeline works end-to-end (real patients,
+real conditions, real drug exposures), but don't expect NSCLC-specific
+*patient* results from it. Also, three tables (`drug_exposure`,
+`measurement`, `observation`) are loaded without a primary key: their
+source CSVs contain a few thousand duplicate surrogate-key values, a
+data-quality quirk in this particular trimmed export rather than something
+the loader introduces.
+
+### Broadening the vocabulary for `search_omop_concept`
+
+GiBleed's own `CONCEPT` table is trimmed to just the ~444 concepts its
+GI-bleeding cohort needs — `search_omop_concept` returns nothing for
+unrelated terms, including anything NSCLC-related. `scripts/merge_vocabulary.py`
+fixes that by additively merging in
+[OHDSI's Synthea27Nj dataset](https://github.com/OHDSI/EunomiaDatasets/tree/main/datasets/Synthea27Nj)'s
+broader vocabulary (~2,300 concepts from a general synthetic population,
+including real oncology terms like `Non-small cell lung cancer` and
+chemotherapy drugs):
+
+```bash
+python scripts/merge_vocabulary.py
+```
+
+Run this *after* `load_omop_data.py`. It only touches the `CONCEPT` and
+`VOCABULARY` tables, inserting with `ON CONFLICT DO NOTHING` — it adds
+concepts GiBleed didn't have, but never overwrites or removes anything, so
+GiBleed's already-loaded patient records still join correctly against the
+concepts they reference. Safe to re-run (idempotent).
+
+This only broadens the *vocabulary* (what `search_omop_concept` can find),
+not the *patient data* — the loaded patients are still GiBleed's
+GI-bleeding cohort. Getting real NSCLC-cohort patient data into
+`query_omop_database` would be a separate, larger effort (see README's
+"Sample data" caveat above); this fix is specifically about making
+concept lookup work for cohort-definition building.
 
 ## Cohort definitions
 
