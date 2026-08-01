@@ -253,9 +253,60 @@ hand-written) validates and normalizes a cohort definition — referential
 integrity between criteria/`AdditionalCriteria`/`EndStrategy` and concept
 sets, criterion/concept-set domain agreement, `AT_LEAST`/`AT_MOST` groups
 having a `Count`, `bt`/`nbt` ranges having an `Extent` — and returns it as
-JSON. It doesn't execute the cohort against the database yet; that would
-mean compiling this structure into SQL against the OMOP tables, which is a
-natural next step but isn't built.
+JSON.
+
+### Running a cohort definition on Atlas
+
+`AtlasClient.run_cohort(name, cohort_expression, source_key=None)` takes a
+`define_cohort()` result and executes it for real: POSTs it to Atlas's
+`/cohortdefinition` endpoint, triggers generation against a CDM data source
+(`/cohortdefinition/{id}/generate/{sourceKey}`, an async job), polls
+`/cohortdefinition/{id}/info` until it completes, and returns the person
+count. `create_cohort_definition`, `generate_cohort`, and `get_cohort_count`
+are also available individually.
+
+Since `cohort.py`'s internal representation deliberately deviates from
+Atlas's own wire format (the explicit `criterion_type`/`strategy_type`
+discriminators and descriptive `Occurrence.Type`/`Window.Coeff` strings
+documented above), `_to_atlas_expression()` translates one into the other
+first. Verified live against `atlas-demo.ohdsi.org`: a real NSCLC +
+osimertinib + Asian-women cohort round-tripped through `create_cohort_definition`
+→ `generate_cohort` → `get_cohort_count` against `SYNPUF1K`, matching the
+translation rules found by comparing against real fetched cohort definitions
+(`/cohortdefinition/99285`, `/101431`, `/158059`).
+
+`AtlasClient.get_cohort_report(cohort_id, source_key=None)` fetches Atlas's
+inclusion-rule attrition report for an already-generated cohort
+(`/cohortdefinition/{id}/report/{sourceKey}`) — how many people matched the
+primary criteria (`baseCount`), how many remained after each inclusion rule,
+and the final count. A separate, deeper per-analysis characterization
+endpoint (`/cohortresults/{sourceKey}/{id}`, Achilles-style age/gender/
+condition breakdowns) exists on the server but its detail-retrieval shape
+isn't documented anywhere reachable from this demo instance and wasn't
+findable by trial and error within reasonable effort, so it isn't wired up.
+
+### Summarizing cohort results with Claude
+
+`summarize.py`'s `summarize_cohort_results(cohort_result, client=None)` takes
+a `{"name", "source_key", "person_count", "report"}` dict — the outputs of
+`run_cohort()` and `get_cohort_report()` — and asks Claude for a short,
+abstract-style summary paragraph. The system prompt instructs it to ground
+every sentence in the numbers given and not invent patient-level detail
+(demographics, dates, outcomes) that wasn't actually retrieved, since only
+aggregate counts and attrition stats are available, not row-level data.
+`client` is injectable for testing; defaults to `anthropic.Anthropic()`.
+
+Verified live: a real "Malignant tumor of lung, treated with erlotinib"
+cohort (3,880 base population → 3 final, `SYNPUF5PCT`) produced:
+
+> We conducted a retrospective cohort study using the SYNPUF5PCT data source
+> to identify patients with a malignant tumor of the lung who were
+> subsequently treated with erlotinib. From a base population of 3,880
+> individuals with a lung malignancy, we applied a single inclusion
+> criterion requiring treatment with erlotinib on or after diagnosis. This
+> rule excluded 99.92% of the base population, leaving 3 patients (0.08%)
+> who satisfied the requirement. The final cohort therefore comprised 3
+> persons.
 
 Example: an NSCLC cohort on first-line osimertinib, excluding patients with
 baseline brain metastasis, ending the cohort era on a gap in drug exposure
@@ -326,6 +377,42 @@ validated cohort definition JSON lands on stdout — safe to redirect straight
 to a file. Loops for at most 12 turns before giving up.
 
 ## Run
+
+`main.py` is an interactive loop tying the whole pipeline together end to
+end: type a clinical question, and for each one see the cohort definition
+JSON Claude builds (`nl_to_cohort`), the result of actually running it
+against a real Atlas WebAPI CDM data source (`atlas.py`), and a short
+narrative summary of those results (`summarize.py`). Blank line or Ctrl-D
+to quit. Always queries `SYNPUF5PCT` (hardcoded, ~100x larger than
+`SYNPUF1K`, the config default used elsewhere) regardless of
+`ATLAS_SOURCE_KEY` -- this loop is for exploring real questions, where the
+bigger sample matters. Each cohort definition it creates on Atlas is
+deleted again once its results are in hand (`finally`-guarded, so cleanup
+runs even if generation or summarization fails partway through), so nothing
+accumulates on the shared public demo server across runs.
+
+```bash
+python main.py
+```
+
+`app.py` is the same pipeline as a browser UI (Streamlit) instead of a
+terminal loop -- same question box, same three sections (generated cohort
+definition JSON, Atlas query result with base/final/percent-matched metrics,
+narrative summary), same hardcoded `SYNPUF5PCT` + delete-after-use cleanup
+behavior as `main.py`.
+
+```bash
+pip install -e ".[web]"
+streamlit run app.py
+```
+
+Verified live end to end with a real browser (Playwright driving the
+pre-installed Chromium against a locally-running `streamlit run app.py`):
+typed a question, clicked Run, and watched it produce a real cohort
+definition, a real Atlas query result, and a real narrative summary,
+rendered in the actual page -- not simulated. The Atlas cohort created
+during that run was confirmed deleted afterward via the same
+`/cohortdefinition` listing check used elsewhere in this README.
 
 ```bash
 python -m nsclc_rwe.agent "Search the Atlas vocabulary for non-small cell lung cancer concepts"
