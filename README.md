@@ -27,13 +27,20 @@ execute against the database.
 ## What's in the repo
 
 Prototype Claude API tool-use agent for NSCLC real-world evidence work. It
-gives Claude three tools:
+gives Claude four tools:
 
 - `query_omop_database` — read-only SQL (`SELECT`/`WITH` only) against a
   hosted Postgres instance holding an OMOP CDM, executed over Neon's
   SQL-over-HTTP endpoint rather than the raw Postgres wire protocol.
 - `search_atlas_vocabulary` — vocabulary search against an OHDSI Atlas
   WebAPI instance (defaults to the public demo at `atlas-demo.ohdsi.org`).
+- `search_omop_concept` — vocabulary search against the CONCEPT table in
+  *this* database's own loaded OMOP vocabulary (e.g. GiBleed's trimmed
+  subset), filtered by domain. Distinct from `search_atlas_vocabulary`:
+  that hits Atlas's external demo vocabulary snapshot, which isn't
+  necessarily the same vocabulary as what's actually loaded here — use
+  this one when you need a concept_id guaranteed to exist in this
+  database.
 - `define_cohort` — validates and normalizes a structured, OMOP-style
   cohort definition, modeled on OHDSI Atlas's full CIRCE cohort-expression
   format (concept sets, ~16 clinical-event criterion types, inclusion

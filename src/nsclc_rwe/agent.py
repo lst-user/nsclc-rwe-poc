@@ -4,7 +4,7 @@ import anthropic
 
 from .cohort import define_cohort
 from .config import load_settings
-from .tools import query_omop_database, search_atlas_vocabulary
+from .tools import query_omop_database, search_atlas_vocabulary, search_omop_concept
 
 
 def main() -> None:
@@ -20,7 +20,7 @@ def main() -> None:
         model=settings.model,
         max_tokens=4096,
         thinking={"type": "adaptive"},
-        tools=[query_omop_database, search_atlas_vocabulary, define_cohort],
+        tools=[query_omop_database, search_atlas_vocabulary, search_omop_concept, define_cohort],
         messages=[{"role": "user", "content": prompt}],
     )
 
