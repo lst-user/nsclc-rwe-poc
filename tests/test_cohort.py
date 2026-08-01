@@ -2,72 +2,32 @@ import pytest
 
 from nsclc_rwe.cohort import define_cohort
 
-CONDITION_SET = {
-    "id": 0,
-    "name": "NSCLC",
-    "items": [
-        {
-            "concept": {
-                "concept_id": 4115276,
-                "concept_name": "Non-small cell lung cancer",
-                "domain_id": "Condition",
-                "vocabulary_id": "SNOMED",
-                "standard_concept": "S",
-            }
-        }
-    ],
-}
-DRUG_SET = {
-    "id": 1,
-    "name": "Osimertinib",
-    "items": [
-        {
-            "concept": {
-                "concept_id": 35604931,
-                "concept_name": "Osimertinib",
-                "domain_id": "Drug",
-                "vocabulary_id": "RxNorm",
-                "standard_concept": "S",
-            }
-        }
-    ],
-}
-BRAIN_MET_SET = {
-    "id": 2,
-    "name": "Brain metastasis",
-    "items": [
-        {
-            "concept": {
-                "concept_id": 4300544,
-                "concept_name": "Secondary malignant neoplasm of brain",
-                "domain_id": "Condition",
-                "vocabulary_id": "SNOMED",
-                "standard_concept": "S",
-            }
-        }
-    ],
-}
+
+def _concept(concept_id: int, name: str, domain: str, vocab: str) -> dict:
+    return {"CONCEPT_ID": concept_id, "CONCEPT_NAME": name, "DOMAIN_ID": domain, "VOCABULARY_ID": vocab}
+
+
+CONDITION_SET = {"id": 0, "name": "NSCLC", "expression": {"items": [{"concept": _concept(4115276, "Non-small cell lung cancer", "Condition", "SNOMED")}]}}
+DRUG_SET = {"id": 1, "name": "Osimertinib", "expression": {"items": [{"concept": _concept(35604931, "Osimertinib", "Drug", "RxNorm")}]}}
+BRAIN_MET_SET = {"id": 2, "name": "Brain metastasis", "expression": {"items": [{"concept": _concept(4300544, "Secondary malignant neoplasm of brain", "Condition", "SNOMED")}]}}
 
 VALID_COHORT = {
     "cohort": {
         "name": "Advanced NSCLC, EGFR TKI treated, no baseline brain mets",
-        "concept_sets": [CONDITION_SET, DRUG_SET, BRAIN_MET_SET],
-        "primary_criteria": {
-            "criteria_list": [{"criterion_type": "DrugExposure", "concept_set_id": 1, "first": True}],
-            "observation_window": {"prior_days": 365, "post_days": 0},
+        "ConceptSets": [CONDITION_SET, DRUG_SET, BRAIN_MET_SET],
+        "PrimaryCriteria": {
+            "CriteriaList": [{"criterion_type": "DrugExposure", "CodesetId": 1, "First": True}],
+            "ObservationWindow": {"PriorDays": 365, "PostDays": 0},
         },
-        "inclusion_rules": [
+        "InclusionRules": [
             {
                 "name": "Has NSCLC diagnosis before or on index",
                 "expression": {
-                    "type": "ALL",
-                    "criteria_list": [
+                    "Type": "ALL",
+                    "CriteriaList": [
                         {
-                            "criterion": {"criterion_type": "ConditionOccurrence", "concept_set_id": 0},
-                            "start_window": {
-                                "start": {"direction": "before"},
-                                "end": {"days": 0, "direction": "after"},
-                            },
+                            "Criteria": {"criterion_type": "ConditionOccurrence", "CodesetId": 0},
+                            "StartWindow": {"Start": {"Coeff": "before"}, "End": {"Days": 0, "Coeff": "after"}},
                         }
                     ],
                 },
@@ -75,21 +35,18 @@ VALID_COHORT = {
             {
                 "name": "No brain metastasis before index",
                 "expression": {
-                    "type": "AT_MOST",
-                    "count": 0,
-                    "criteria_list": [
+                    "Type": "AT_MOST",
+                    "Count": 0,
+                    "CriteriaList": [
                         {
-                            "criterion": {"criterion_type": "ConditionOccurrence", "concept_set_id": 2},
-                            "start_window": {
-                                "start": {"direction": "before"},
-                                "end": {"days": 0, "direction": "before"},
-                            },
+                            "Criteria": {"criterion_type": "ConditionOccurrence", "CodesetId": 2},
+                            "StartWindow": {"Start": {"Coeff": "before"}, "End": {"Days": 0, "Coeff": "before"}},
                         }
                     ],
                 },
             },
         ],
-        "end_strategy": {"strategy_type": "custom_era", "drug_concept_set_id": 1, "gap_days": 30},
+        "EndStrategy": {"strategy_type": "custom_era", "CustomEra": {"DrugCodesetId": 1, "GapDays": 30}},
     }
 }
 
@@ -127,14 +84,15 @@ def test_valid_multi_rule_cohort_round_trips():
     result = define_cohort.call(VALID_COHORT)
     assert "Osimertinib" in result
     assert "custom_era" in result
+    assert '"CONCEPT_ID": 4115276' in result
 
 
 def test_rejects_criterion_referencing_unknown_concept_set():
     bad = {
         "cohort": {
             "name": "bad ref",
-            "concept_sets": [CONDITION_SET],
-            "primary_criteria": {"criteria_list": [{"criterion_type": "ConditionOccurrence", "concept_set_id": 99}]},
+            "ConceptSets": [CONDITION_SET],
+            "PrimaryCriteria": {"CriteriaList": [{"criterion_type": "ConditionOccurrence", "CodesetId": 99}]},
         }
     }
     with pytest.raises(ValueError) as exc_info:
@@ -146,8 +104,8 @@ def test_rejects_domain_mismatch_between_criterion_and_concept_set():
     bad = {
         "cohort": {
             "name": "domain mismatch",
-            "concept_sets": [CONDITION_SET],
-            "primary_criteria": {"criteria_list": [{"criterion_type": "DrugExposure", "concept_set_id": 0}]},
+            "ConceptSets": [CONDITION_SET],
+            "PrimaryCriteria": {"CriteriaList": [{"criterion_type": "DrugExposure", "CodesetId": 0}]},
         }
     }
     with pytest.raises(ValueError) as exc_info:
@@ -159,17 +117,17 @@ def test_rejects_at_least_group_without_count():
     bad = {
         "cohort": {
             "name": "bad group",
-            "concept_sets": [CONDITION_SET],
-            "primary_criteria": {"criteria_list": [{"criterion_type": "ConditionOccurrence", "concept_set_id": 0}]},
-            "inclusion_rules": [
+            "ConceptSets": [CONDITION_SET],
+            "PrimaryCriteria": {"CriteriaList": [{"criterion_type": "ConditionOccurrence", "CodesetId": 0}]},
+            "InclusionRules": [
                 {
                     "name": "r",
                     "expression": {
-                        "type": "AT_LEAST",
-                        "criteria_list": [
+                        "Type": "AT_LEAST",
+                        "CriteriaList": [
                             {
-                                "criterion": {"criterion_type": "ConditionOccurrence", "concept_set_id": 0},
-                                "start_window": {"start": {"direction": "before"}, "end": {"direction": "after"}},
+                                "Criteria": {"criterion_type": "ConditionOccurrence", "CodesetId": 0},
+                                "StartWindow": {"Start": {"Coeff": "before"}, "End": {"Coeff": "after"}},
                             }
                         ],
                     },
@@ -179,16 +137,16 @@ def test_rejects_at_least_group_without_count():
     }
     with pytest.raises(ValueError) as exc_info:
         define_cohort.call(bad)
-    assert "count is required" in _cause_message(exc_info.value)
+    assert "Count is required" in _cause_message(exc_info.value)
 
 
 def test_rejects_custom_era_end_strategy_with_unknown_concept_set():
     bad = {
         "cohort": {
             "name": "bad end strategy",
-            "concept_sets": [CONDITION_SET],
-            "primary_criteria": {"criteria_list": [{"criterion_type": "ConditionOccurrence", "concept_set_id": 0}]},
-            "end_strategy": {"strategy_type": "custom_era", "drug_concept_set_id": 99},
+            "ConceptSets": [CONDITION_SET],
+            "PrimaryCriteria": {"CriteriaList": [{"criterion_type": "ConditionOccurrence", "CodesetId": 0}]},
+            "EndStrategy": {"strategy_type": "custom_era", "CustomEra": {"DrugCodesetId": 99}},
         }
     }
     with pytest.raises(ValueError) as exc_info:
@@ -200,11 +158,33 @@ def test_rejects_empty_criteria_group():
     bad = {
         "cohort": {
             "name": "empty group",
-            "concept_sets": [CONDITION_SET],
-            "primary_criteria": {"criteria_list": [{"criterion_type": "ConditionOccurrence", "concept_set_id": 0}]},
-            "inclusion_rules": [{"name": "r", "expression": {"type": "ALL"}}],
+            "ConceptSets": [CONDITION_SET],
+            "PrimaryCriteria": {"CriteriaList": [{"criterion_type": "ConditionOccurrence", "CodesetId": 0}]},
+            "InclusionRules": [{"name": "r", "expression": {"Type": "ALL"}}],
         }
     }
     with pytest.raises(ValueError) as exc_info:
         define_cohort.call(bad)
     assert "needs at least one" in _cause_message(exc_info.value)
+
+
+def test_additional_criteria_referencing_unknown_concept_set_is_rejected():
+    bad = {
+        "cohort": {
+            "name": "bad additional criteria",
+            "ConceptSets": [CONDITION_SET],
+            "PrimaryCriteria": {"CriteriaList": [{"criterion_type": "ConditionOccurrence", "CodesetId": 0}]},
+            "AdditionalCriteria": {
+                "Type": "ALL",
+                "CriteriaList": [
+                    {
+                        "Criteria": {"criterion_type": "ConditionOccurrence", "CodesetId": 99},
+                        "StartWindow": {"Start": {"Coeff": "before"}, "End": {"Coeff": "after"}},
+                    }
+                ],
+            },
+        }
+    }
+    with pytest.raises(ValueError) as exc_info:
+        define_cohort.call(bad)
+    assert "unknown concept_set" in _cause_message(exc_info.value)
