@@ -70,8 +70,9 @@ tests/
   test_nl_to_cohort.py
   test_tools.py
 scripts/
-  load_omop_data.py     # one-off loader for sample OMOP CDM data (see below)
-  merge_vocabulary.py   # one-off: merge in a broader vocabulary (see below)
+  load_omop_data.py         # one-off loader for sample OMOP CDM data (see below)
+  merge_vocabulary.py       # one-off: merge in a broader test-dataset vocabulary
+  load_athena_vocabulary.py # one-off: merge in the real OHDSI Standardized Vocabularies
 ```
 
 ## Setup
@@ -164,6 +165,40 @@ GI-bleeding cohort. Getting real NSCLC-cohort patient data into
 `query_omop_database` would be a separate, larger effort (see README's
 "Sample data" caveat above); this fix is specifically about making
 concept lookup work for cohort-definition building.
+
+Synthea27Nj's vocabulary still has real gaps — testing surfaced that
+neither `osimertinib`/`Tagrisso` nor `Asian` (race) existed locally even
+after this merge, despite both being real, standard OMOP concepts. For
+those, `scripts/load_athena_vocabulary.py` additively merges in a filtered
+slice of the actual [OHDSI Standardized Vocabularies](https://athena.ohdsi.org)
+(SNOMED, RxNorm, etc.). Unlike GiBleed/Synthea27Nj, this isn't a public,
+no-license-gate download — it requires a personal Athena account (and a
+separate UMLS account for SNOMED/LOINC) and license acceptance, so it
+can't be fetched automatically. Download it yourself from
+[athena.ohdsi.org](https://athena.ohdsi.org), then pass the path to the
+zip it emails you:
+
+```bash
+python scripts/load_athena_vocabulary.py /path/to/vocabulary_download_v5_*.zip
+```
+
+The full download's `CONCEPT.csv` is ~6.4M rows (2.7M standard), and
+`CONCEPT_RELATIONSHIP`/`CONCEPT_ANCESTOR` run into the tens of millions —
+loading all of it through Neon's SQL-over-HTTP endpoint (no bulk `COPY`
+available in this sandbox) isn't practical. This script only loads
+`CONCEPT` rows that are both standard (`STANDARD_CONCEPT='S'`) and in a
+clinically relevant domain (Condition, Drug, Procedure, Measurement,
+Observation, Device, Specimen, Visit, Race, Ethnicity, Gender), and within
+Drug additionally drops NDC-package/box-level concept classes (Marketed
+Product, `*Box`, `Quant *`, `*Pack*` — the bulk of RxNorm Extension's row
+count, not useful for cohort concept sets). `CONCEPT_RELATIONSHIP`,
+`CONCEPT_ANCESTOR`, `CONCEPT_SYNONYM`, `DRUG_STRENGTH`, and `CONCEPT_CPT4`
+are skipped entirely — nothing in this repo uses them today, and CPT4
+additionally needs a separate UMLS-keyed decode step. This brings the load
+down to ~1.2M rows (~20-25 minutes at this sandbox's measured throughput),
+from what would otherwise be a multi-hour-plus job. Same `ON CONFLICT DO
+NOTHING` merge approach as `merge_vocabulary.py` — additive only, safe to
+re-run, doesn't touch patient data.
 
 ## Cohort definitions
 
