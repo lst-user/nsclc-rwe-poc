@@ -221,6 +221,25 @@ const RTK_COMBO = 'RTK-targeted ADC or bispecific (e.g., T-DXd, amivantamab)'
 const RASON_COMBO = 'RAS(ON) inhibitor doublet (daraxonrasib + zoldonrasib)'
 const UNDER_INVESTIGATION = 'under investigation'
 
+// Daraxonrasib trials enroll previously-treated advanced PDAC (this is not a
+// first-line population), so line of therapy is 2L or later.
+const LINE_OF_THERAPY_WEIGHTS = [
+  { value: 2, p: 0.35 },
+  { value: 3, p: 0.35 },
+  { value: 4, p: 0.3 },
+]
+// Standard-of-care PDAC regimens a patient could have received before enrolling.
+const PRIOR_REGIMEN_POOL = [
+  'FOLFIRINOX',
+  'Gemcitabine + nab-paclitaxel',
+  'NALIRIFOX',
+  'Gemcitabine monotherapy',
+  '5-FU/leucovorin + liposomal irinotecan',
+]
+// Screening/consent precedes first dose of daraxonrasib (Cycle 1 Day 1) by a
+// short workup window.
+const SCREENING_LEAD_DAYS_RANGE = [7, 21]
+
 // Fresh-frozen tissue (paired with FFPE) is required for high-depth WES/WGS
 // and single-cell RNA-seq; realistic attrition, worse at progression biopsy.
 const FRESH_FROZEN_COLLECTED_BASELINE_P = 0.88
@@ -273,6 +292,8 @@ const concordanceFlags = quotaAssign(N_PATIENTS, [
   { value: true, p: 0.85 },
   { value: false, p: 0.15 },
 ])
+const linesOfTherapy = quotaAssign(N_PATIENTS, LINE_OF_THERAPY_WEIGHTS)
+const priorRegimensByPatient = linesOfTherapy.map((lot) => sampleWithoutReplacement(PRIOR_REGIMEN_POOL, lot - 1))
 
 const resistanceFlags = assignStratifiedBoolean(doseBands, {
   '160-300mg': HIGH_DOSE_RESISTANCE_P,
@@ -472,9 +493,16 @@ function generatePatient(index) {
   const bestResponse = bestResponses[index]
   const tissueCtdnaConcordant = concordanceFlags[index]
 
+  // --- line of therapy: daraxonrasib trials enroll previously-treated PDAC ---
+  const lineOfTherapy = linesOfTherapy[index]
+  const priorRegimens = priorRegimensByPatient[index]
+
   // --- patient timeline: everything on-treatment is scheduled to land
-  // strictly before this patient's own progression date ---
+  // strictly before this patient's own progression date. `treatmentStartDate`
+  // is Cycle 1 Day 1 (first dose of daraxonrasib) and anchors every
+  // weeksOnTreatment value in the record; enrollment/screening precedes it. ---
   const treatmentStartDate = randomDateInRange(TRIAL_ENROLLMENT_START, TRIAL_ENROLLMENT_END)
+  const enrollmentDate = addDays(treatmentStartDate, -randInt(...SCREENING_LEAD_DAYS_RANGE))
   const progressionFreeSurvivalWeeks = round(randFloat(...PFS_WEEKS_RANGE[bestResponse]), 1)
   const progressionDate = addWeeks(treatmentStartDate, progressionFreeSurvivalWeeks)
   const clinicalMidTreatmentWeek = round(progressionFreeSurvivalWeeks * randFloat(0.4, 0.7), 1)
@@ -667,7 +695,10 @@ function generatePatient(index) {
 
   const record = {
     patientId,
-    enrollmentDate: treatmentStartDate,
+    lineOfTherapy,
+    priorRegimens,
+    enrollmentDate,
+    daraxonrasibStartDate: treatmentStartDate,
     progressionDate,
     progressionFreeSurvivalWeeks,
     doseBand,
@@ -938,7 +969,14 @@ const nonResistant = cohort.filter((p) => !p.hasAcquiredResistance)
 
 console.log('=== Cohort summary ===')
 console.log(`Total patients: ${cohort.length}`)
-console.log(`Resistance rate: ${resistant.length}/${cohort.length} (${pct(resistant.length, cohort.length)})`)
+
+console.log('\nLine of therapy (daraxonrasib is 2L+ in all patients):')
+for (const lot of [2, 3, 4]) {
+  const n = cohort.filter((p) => p.lineOfTherapy === lot).length
+  console.log(`  ${lot}L${lot === 4 ? '+' : ''}: ${n}/${cohort.length} (${pct(n, cohort.length)})`)
+}
+
+console.log(`\nResistance rate: ${resistant.length}/${cohort.length} (${pct(resistant.length, cohort.length)})`)
 
 console.log('\nMechanism breakdown (of resistance-positive patients):')
 const mechCounts = {}
@@ -1022,21 +1060,23 @@ function collectDates(node, out) {
 let dateFieldCount = 0
 let orderingViolations = 0
 for (const p of cohort) {
-  const enrollTime = new Date(p.enrollmentDate).getTime()
+  const startTime = new Date(p.daraxonrasibStartDate).getTime()
   const progTime = new Date(p.progressionDate).getTime()
   const dates = []
   collectDates(p, dates)
   dateFieldCount += dates.length
   for (const d of dates) {
     const t = new Date(d).getTime()
-    if (t < enrollTime || t > progTime) orderingViolations++
+    if (t < startTime || t > progTime) orderingViolations++
   }
 }
 const enrollDates = cohort.map((p) => p.enrollmentDate).sort()
+const startDates = cohort.map((p) => p.daraxonrasibStartDate).sort()
 const progDates = cohort.map((p) => p.progressionDate).sort()
 const pfsWeeks = cohort.map((p) => p.progressionFreeSurvivalWeeks).sort((a, b) => a - b)
-console.log(`  Date fields present: ${dateFieldCount}, out of enrollment-to-progression range: ${orderingViolations}`)
-console.log(`  Enrollment date range: ${enrollDates[0]} to ${enrollDates[enrollDates.length - 1]}`)
+console.log(`  Date fields present: ${dateFieldCount}, out of dosing-to-progression range: ${orderingViolations}`)
+console.log(`  Enrollment/screening date range: ${enrollDates[0]} to ${enrollDates[enrollDates.length - 1]}`)
+console.log(`  Daraxonrasib start (C1D1) date range: ${startDates[0]} to ${startDates[startDates.length - 1]}`)
 console.log(`  Progression date range: ${progDates[0]} to ${progDates[progDates.length - 1]}`)
 console.log(
   `  PFS (weeks): min ${pfsWeeks[0]}, median ${pfsWeeks[Math.floor(pfsWeeks.length / 2)]}, max ${pfsWeeks[pfsWeeks.length - 1]}`,
