@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import FilterSelect from '../components/FilterSelect'
 import { selectCohortStats, useCohort } from '../data/useCohort'
 
 const KRAS_VARIANT_OPTIONS = ['G12D', 'G12V', 'G12C', 'G12R', 'Q61H', 'other']
@@ -19,26 +20,6 @@ function StatTile({ label, value, sub }) {
   )
 }
 
-function FilterSelect({ label, value, options, onChange }) {
-  return (
-    <label className="flex flex-col gap-1 text-xs">
-      <span className="font-semibold uppercase tracking-wide text-ink-400">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-sm text-ink-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-500"
-      >
-        <option value="all">All</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
-}
-
 function MechanismTooltip({ active, payload }) {
   if (!active || !payload?.length) return null
   const { mechanism, count } = payload[0].payload
@@ -53,12 +34,13 @@ function MechanismTooltip({ active, payload }) {
   )
 }
 
-function CohortLandscape() {
+// mechanismFilter/onMechanismFilterChange are lifted to App.jsx so the
+// selection survives a jump to Patient Trajectory (and back).
+function CohortLandscape({ mechanismFilter: selectedMechanism, onMechanismFilterChange: setSelectedMechanism }) {
   const { cohort } = useCohort()
   const [krasFilter, setKrasFilter] = useState('all')
   const [doseFilter, setDoseFilter] = useState('all')
   const [tp53Filter, setTp53Filter] = useState('all')
-  const [selectedMechanism, setSelectedMechanism] = useState(null)
 
   const filtersActive = krasFilter !== 'all' || doseFilter !== 'all' || tp53Filter !== 'all'
 

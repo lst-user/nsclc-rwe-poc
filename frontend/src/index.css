@@ -29,6 +29,12 @@
   --color-transmed-100: #dce9f8;
   --color-medaffairs-600: #6d4fc4;
   --color-medaffairs-100: #ece7fb;
+
+  /* Status: reserved for state (e.g. resistance emergence), never reused as a series color.
+     Matches Tailwind's stock red-600/700 so chart strokes and plain bg-red-* utilities align. */
+  --color-critical-700: #b91c1c;
+  --color-critical-600: #dc2626;
+  --color-critical-100: #fee2e2;
 }
 
 body {

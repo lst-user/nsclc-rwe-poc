@@ -31,6 +31,9 @@ const VIEWS = [
 function App() {
   const [activePersona, setActivePersona] = useState(PERSONAS[0].id)
   const [activeView, setActiveView] = useState(PERSONAS[0].defaultView)
+  // Shared across views so a mechanism picked in Cohort Landscape carries
+  // over when the user switches to Patient Trajectory (and back).
+  const [mechanismFilter, setMechanismFilter] = useState(null)
 
   function handlePersonaChange(personaId) {
     setActivePersona(personaId)
@@ -102,7 +105,7 @@ function App() {
       <main className="mx-auto max-w-7xl px-6 py-8">
         {VIEWS.map((view) => (
           <div key={view.id} hidden={view.id !== activeView}>
-            <view.Component />
+            <view.Component mechanismFilter={mechanismFilter} onMechanismFilterChange={setMechanismFilter} />
           </div>
         ))}
       </main>
