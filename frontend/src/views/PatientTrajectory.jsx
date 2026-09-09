@@ -20,6 +20,22 @@ function addWeeks(iso, weeks) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 }
 
+// Three ways a patient's progression can relate to a genomic driver:
+// no resistance ever acquired, resistance acquired but the standard
+// tissue/ctDNA panel called no reportable alteration (PPIA panel-miss), or
+// a mechanism was identified.
+const RESISTANCE_STATUS_OPTIONS = [
+  { value: 'none', label: 'No genomic driver identified' },
+  { value: 'unknown', label: 'Unknown / panel-negative' },
+  { value: 'identified', label: 'Mechanism identified' },
+]
+
+function resistanceStatusOf(p) {
+  if (!p.hasAcquiredResistance) return 'none'
+  if (p.genomics.progression.repeatBiopsyNGS.resistanceMechanism === null) return 'unknown'
+  return 'identified'
+}
+
 function MetaField({ label, value, sub }) {
   return (
     <div>
@@ -68,6 +84,7 @@ function PatientTrajectory({
 }) {
   const { cohort } = useCohort()
   const [search, setSearch] = useState('')
+  const [resistanceStatusFilter, setResistanceStatusFilter] = useState('all')
   const [showCa199, setShowCa199] = useState(false)
   const [showNlr, setShowNlr] = useState(false)
 
@@ -80,10 +97,19 @@ function PatientTrajectory({
     const term = search.trim().toLowerCase()
     return cohort.filter((p) => {
       if (selectedMechanism && p.resistanceMechanism !== selectedMechanism) return false
+      if (resistanceStatusFilter !== 'all' && resistanceStatusOf(p) !== resistanceStatusFilter) return false
       if (term && !p.patientId.toLowerCase().includes(term)) return false
       return true
     })
-  }, [cohort, selectedMechanism, search])
+  }, [cohort, selectedMechanism, resistanceStatusFilter, search])
+
+  const filtersActive = selectedMechanism !== null || resistanceStatusFilter !== 'all' || search.trim() !== ''
+
+  function resetFilters() {
+    onSelectedMechanismChange(null)
+    setResistanceStatusFilter('all')
+    setSearch('')
+  }
 
   // Prefer the current selection only while it still matches the active
   // filters, so changing a filter never leaves the chart showing a patient
@@ -137,6 +163,7 @@ function PatientTrajectory({
   const p = selectedPatient
   const repeatBiopsy = p?.genomics.progression.repeatBiopsyNGS
   const resistant = p?.hasAcquiredResistance
+  const resistanceStatus = p ? resistanceStatusOf(p) : null
   const mechanismLabel = resistant
     ? (repeatBiopsy.resistanceMechanism ?? `${p.resistanceMechanism} (panel-negative)`)
     : null
@@ -157,6 +184,12 @@ function PatientTrajectory({
             options={availableMechanisms}
             onChange={(v) => onSelectedMechanismChange(v === 'all' ? null : v)}
           />
+          <FilterSelect
+            label="Resistance status"
+            value={resistanceStatusFilter}
+            options={RESISTANCE_STATUS_OPTIONS}
+            onChange={setResistanceStatusFilter}
+          />
           <label className="flex flex-col gap-1 text-xs">
             <span className="font-semibold uppercase tracking-wide text-ink-400">Search patient ID</span>
             <input
@@ -168,6 +201,15 @@ function PatientTrajectory({
             />
           </label>
           <p className="ml-auto text-xs text-ink-400">{filteredPatients.length} matching patients</p>
+          {filtersActive && (
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="text-xs font-medium text-accent-600 hover:text-accent-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-500"
+            >
+              Reset filters
+            </button>
+          )}
         </div>
 
         <div className="mt-3 flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
@@ -190,7 +232,7 @@ function PatientTrajectory({
             )
           })}
           {filteredPatients.length === 0 && (
-            <p className="py-1 text-sm text-ink-400">No patients match this mechanism/search combination.</p>
+            <p className="py-1 text-sm text-ink-400">No patients match the current filters.</p>
           )}
         </div>
       </div>
@@ -219,6 +261,23 @@ function PatientTrajectory({
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
+          <MetaField
+            label="Resistance status"
+            value={
+              resistanceStatus === 'none'
+                ? 'No genomic driver'
+                : resistanceStatus === 'unknown'
+                  ? 'Unknown / panel-negative'
+                  : p.resistanceMechanism
+            }
+            sub={
+              resistanceStatus === 'none'
+                ? 'Progressed without acquired resistance'
+                : resistanceStatus === 'unknown'
+                  ? `${p.resistanceMechanism} (panel-negative)`
+                  : p.resistanceMechanismSource
+            }
+          />
           <MetaField label="Best response" value={p.bestResponse} />
           <MetaField label="Baseline KRAS" value={p.genomics.baseline.diagnosticBiopsyNGS.baselineKrasVariant} />
           <MetaField
