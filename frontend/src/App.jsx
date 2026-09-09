@@ -30,11 +30,11 @@ const VIEWS = [
 function App() {
   const [activePersona, setActivePersona] = useState(PERSONAS[0].id)
   const [activeView, setActiveView] = useState(PERSONAS[0].defaultView)
-  // Shared across views so a mechanism picked in Cohort Landscape carries
-  // over when the user switches to Patient Trajectory (and back).
-  const [mechanismFilter, setMechanismFilter] = useState(null)
-  // Shared so Mechanism & Strategy can highlight whichever mechanism is
-  // active in Patient Trajectory's current patient, not just the filter.
+  // Shared across all three views — any view can set or read either piece
+  // of selection, so a user can start on any tab and the other two stay in
+  // sync with them (mechanism picked in Cohort Landscape or Mechanism &
+  // Strategy; patient picked in Patient Trajectory).
+  const [selectedMechanism, setSelectedMechanism] = useState(null)
   const [selectedPatientId, setSelectedPatientId] = useState(null)
 
   function handlePersonaChange(personaId) {
@@ -110,10 +110,11 @@ function App() {
         {VIEWS.map((view) => (
           <div key={view.id} hidden={view.id !== activeView}>
             <view.Component
-              mechanismFilter={mechanismFilter}
-              onMechanismFilterChange={setMechanismFilter}
+              selectedMechanism={selectedMechanism}
+              onSelectedMechanismChange={setSelectedMechanism}
               selectedPatientId={selectedPatientId}
               onSelectedPatientIdChange={setSelectedPatientId}
+              onNavigate={setActiveView}
             />
           </div>
         ))}

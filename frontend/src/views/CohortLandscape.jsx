@@ -34,9 +34,15 @@ function MechanismTooltip({ active, payload }) {
   )
 }
 
-// mechanismFilter/onMechanismFilterChange are lifted to App.jsx so the
-// selection survives a jump to Patient Trajectory (and back).
-function CohortLandscape({ mechanismFilter: selectedMechanism, onMechanismFilterChange: setSelectedMechanism }) {
+// selectedMechanism/selectedPatientId are lifted to App.jsx so selections
+// made here, or elsewhere, stay in sync across all three views.
+function CohortLandscape({
+  selectedMechanism,
+  onSelectedMechanismChange: setSelectedMechanism,
+  selectedPatientId,
+  onSelectedPatientIdChange,
+  onNavigate,
+}) {
   const { cohort } = useCohort()
   const [krasFilter, setKrasFilter] = useState('all')
   const [doseFilter, setDoseFilter] = useState('all')
@@ -255,16 +261,32 @@ function CohortLandscape({ mechanismFilter: selectedMechanism, onMechanismFilter
           </div>
 
           <div className="mt-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Patients in this subgroup</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">
+              Patients in this subgroup — click to view this patient&rsquo;s trajectory
+            </p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {selectedSubgroup.map((p) => (
-                <span
-                  key={p.patientId}
-                  className="rounded-full border border-ink-200 bg-white px-2.5 py-1 font-mono text-[11px] text-ink-800"
-                >
-                  {p.patientId}
-                </span>
-              ))}
+              {selectedSubgroup.map((p) => {
+                const isViewing = p.patientId === selectedPatientId
+                return (
+                  <button
+                    key={p.patientId}
+                    type="button"
+                    onClick={() => {
+                      onSelectedPatientIdChange(p.patientId)
+                      onNavigate('patient-trajectory')
+                    }}
+                    aria-label={`View ${p.patientId}'s trajectory`}
+                    title={`View ${p.patientId}'s trajectory →`}
+                    className={`rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-500 ${
+                      isViewing
+                        ? 'border-accent-600 bg-accent-100 text-accent-700'
+                        : 'border-ink-200 bg-white text-ink-800 hover:border-accent-300 hover:text-accent-700'
+                    }`}
+                  >
+                    {p.patientId} <span aria-hidden="true">→</span>
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>

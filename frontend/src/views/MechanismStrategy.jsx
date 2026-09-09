@@ -35,12 +35,18 @@ function groupIdOf(mechanism) {
   return KNOWN_GROUP_IDS.includes(mechanism) ? mechanism : 'Other'
 }
 
-function MechanismCard({ group, isActive, cohortTotal, resistantTotal, krasampTp53 }) {
+function MechanismCard({ group, isActive, cohortTotal, resistantTotal, krasampTp53, onClick }) {
+  const CardTag = onClick ? 'button' : 'div'
   return (
-    <div
-      className={`rounded-lg border p-4 transition-colors ${
-        isActive ? 'border-accent-600 bg-accent-50 ring-1 ring-accent-600' : 'border-ink-200 bg-white'
-      }`}
+    <CardTag
+      type={onClick ? 'button' : undefined}
+      onClick={onClick}
+      aria-pressed={onClick ? isActive : undefined}
+      className={`w-full rounded-lg border p-4 text-left transition-colors ${
+        onClick
+          ? 'cursor-pointer hover:border-accent-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-500'
+          : ''
+      } ${isActive ? 'border-accent-600 bg-accent-50 ring-1 ring-accent-600' : 'border-ink-200 bg-white'}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -105,14 +111,14 @@ function MechanismCard({ group, isActive, cohortTotal, resistantTotal, krasampTp
           creates replication stress vulnerability exploitable by DDR inhibition.
         </div>
       )}
-    </div>
+    </CardTag>
   )
 }
 
-// mechanismFilter/selectedPatientId are lifted to App.jsx so a mechanism
-// picked in Cohort Landscape, or implied by whichever patient is open in
-// Patient Trajectory, highlights the matching card here.
-function MechanismStrategy({ mechanismFilter, selectedPatientId }) {
+// selectedMechanism/selectedPatientId are lifted to App.jsx so a mechanism
+// picked here, in Cohort Landscape, or implied by whichever patient is open
+// in Patient Trajectory, stays in sync across all three views.
+function MechanismStrategy({ selectedMechanism, onSelectedMechanismChange, selectedPatientId }) {
   const { cohort } = useCohort()
 
   const resistant = useMemo(() => cohort.filter((p) => p.hasAcquiredResistance), [cohort])
@@ -122,8 +128,14 @@ function MechanismStrategy({ mechanismFilter, selectedPatientId }) {
     [cohort, selectedPatientId],
   )
   const activeMechanism =
-    mechanismFilter ?? (selectedPatient?.hasAcquiredResistance ? selectedPatient.resistanceMechanism : null)
+    selectedMechanism ?? (selectedPatient?.hasAcquiredResistance ? selectedPatient.resistanceMechanism : null)
   const activeGroupId = activeMechanism ? groupIdOf(activeMechanism) : null
+
+  // Only the four named groups map to a single real resistanceMechanism
+  // value — "Other" aggregates five, so it can't be set as one filter value.
+  function toggleMechanism(id) {
+    onSelectedMechanismChange((prev) => (prev === id ? null : id))
+  }
 
   const groups = useMemo(
     () =>
@@ -172,6 +184,7 @@ function MechanismStrategy({ mechanismFilter, selectedPatientId }) {
             cohortTotal={cohort.length}
             resistantTotal={resistant.length}
             krasampTp53={group.id === 'KRASamp' ? krasampTp53 : null}
+            onClick={group.id !== 'Other' ? () => toggleMechanism(group.id) : undefined}
           />
         ))}
       </div>

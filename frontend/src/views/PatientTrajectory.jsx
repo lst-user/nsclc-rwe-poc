@@ -59,7 +59,13 @@ function TrajectoryTooltip({ active, payload, label, showCa199, showNlr }) {
   )
 }
 
-function PatientTrajectory({ mechanismFilter, onMechanismFilterChange, selectedPatientId, onSelectedPatientIdChange }) {
+function PatientTrajectory({
+  selectedMechanism,
+  onSelectedMechanismChange,
+  selectedPatientId,
+  onSelectedPatientIdChange,
+  onNavigate,
+}) {
   const { cohort } = useCohort()
   const [search, setSearch] = useState('')
   const [showCa199, setShowCa199] = useState(false)
@@ -73,11 +79,11 @@ function PatientTrajectory({ mechanismFilter, onMechanismFilterChange, selectedP
   const filteredPatients = useMemo(() => {
     const term = search.trim().toLowerCase()
     return cohort.filter((p) => {
-      if (mechanismFilter && p.resistanceMechanism !== mechanismFilter) return false
+      if (selectedMechanism && p.resistanceMechanism !== selectedMechanism) return false
       if (term && !p.patientId.toLowerCase().includes(term)) return false
       return true
     })
-  }, [cohort, mechanismFilter, search])
+  }, [cohort, selectedMechanism, search])
 
   // Prefer the current selection only while it still matches the active
   // filters, so changing a filter never leaves the chart showing a patient
@@ -147,9 +153,9 @@ function PatientTrajectory({ mechanismFilter, onMechanismFilterChange, selectedP
         <div className="flex flex-wrap items-end gap-4">
           <FilterSelect
             label="Filter by mechanism"
-            value={mechanismFilter ?? 'all'}
+            value={selectedMechanism ?? 'all'}
             options={availableMechanisms}
-            onChange={(v) => onMechanismFilterChange(v === 'all' ? null : v)}
+            onChange={(v) => onSelectedMechanismChange(v === 'all' ? null : v)}
           />
           <label className="flex flex-col gap-1 text-xs">
             <span className="font-semibold uppercase tracking-wide text-ink-400">Search patient ID</span>
@@ -198,6 +204,18 @@ function PatientTrajectory({ mechanismFilter, onMechanismFilterChange, selectedP
             {p.lineOfTherapy}L · daraxonrasib start {addWeeks(p.daraxonrasibStartDate, 0)} · progression{' '}
             {addWeeks(p.daraxonrasibStartDate, p.progressionFreeSurvivalWeeks)} ({p.progressionFreeSurvivalWeeks} wks)
           </p>
+          {resistant && (
+            <button
+              type="button"
+              onClick={() => {
+                onSelectedMechanismChange(p.resistanceMechanism)
+                onNavigate('mechanism-strategy')
+              }}
+              className="ml-auto text-xs font-medium text-accent-600 hover:text-accent-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-500"
+            >
+              See {p.resistanceMechanism} combination strategy →
+            </button>
+          )}
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
