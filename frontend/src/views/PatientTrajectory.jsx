@@ -11,6 +11,7 @@ import {
   YAxis,
 } from 'recharts'
 import FilterSelect from '../components/FilterSelect'
+import LongitudinalTimeline from '../components/LongitudinalTimeline'
 import { useCohort } from '../data/useCohort'
 
 function addWeeks(iso, weeks) {
@@ -379,6 +380,8 @@ function PatientTrajectory({ mechanismFilter, onMechanismFilterChange }) {
           </div>
         )}
       </div>
+
+      <LongitudinalTimeline patient={p} />
         </>
       )}
     </div>
