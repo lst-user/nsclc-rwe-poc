@@ -1,1 +1,36 @@
 @import 'tailwindcss';
+
+@theme {
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+
+  /* Cool-tinted neutral scale (chosen, not the stock slate default) */
+  --color-ink-950: #0d1210;
+  --color-ink-800: #1f2623;
+  --color-ink-600: #4c554e;
+  --color-ink-500: #64706a;
+  --color-ink-400: #838d85;
+  --color-ink-300: #aab3ac;
+  --color-ink-200: #dde1db;
+  --color-ink-100: #eef0ec;
+  --color-ink-50: #f6f7f4;
+
+  /* Primary accent: deep instrument blue, carried through from the patient-timeline prototype */
+  --color-accent-700: #164a87;
+  --color-accent-600: #1c5cab;
+  --color-accent-500: #2a78d6;
+  --color-accent-100: #dce9f8;
+  --color-accent-50: #f1f6fc;
+
+  /* Persona identity colors — used sparingly as small indicator dots, not backgrounds */
+  --color-epi-600: #158f63;
+  --color-epi-100: #e3f5ee;
+  --color-transmed-600: #1c5cab;
+  --color-transmed-100: #dce9f8;
+  --color-medaffairs-600: #6d4fc4;
+  --color-medaffairs-100: #ece7fb;
+}
+
+body {
+  color-scheme: light dark;
+}
