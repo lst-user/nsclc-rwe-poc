@@ -62,6 +62,61 @@ function sampleWithoutReplacement(array, k) {
   return out
 }
 
+// ---------------------------------------------------------------------------
+// Date helpers
+// ---------------------------------------------------------------------------
+function isoDate(date) {
+  return date.toISOString().slice(0, 10)
+}
+
+function addDays(isoDateString, days) {
+  const d = new Date(`${isoDateString}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + Math.round(days))
+  return isoDate(d)
+}
+
+function addWeeks(isoDateString, weeks) {
+  return addDays(isoDateString, weeks * 7)
+}
+
+function randomDateInRange(startIso, endIso) {
+  const start = new Date(`${startIso}T00:00:00Z`).getTime()
+  const end = new Date(`${endIso}T00:00:00Z`).getTime()
+  return isoDate(new Date(start + rng() * (end - start)))
+}
+
+// Walks the record and, for every object keyed exactly "baseline",
+// "midTreatment", or "progression", attaches a fallback `date` (never
+// overwriting one already set explicitly upstream, e.g. serialCtDNA's own
+// early-on-treatment date). Guarantees every timepoint in the schema carries
+// a calendar date, not just a relative week offset.
+function attachDefaultDates(node, dates) {
+  if (Array.isArray(node)) {
+    node.forEach((item) => attachDefaultDates(item, dates))
+    return
+  }
+  if (node === null || typeof node !== 'object') return
+  for (const key of Object.keys(node)) {
+    const value = node[key]
+    if (
+      (key === 'baseline' || key === 'midTreatment' || key === 'progression') &&
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      value.date === undefined
+    ) {
+      node[key] = { date: dates[key], ...value }
+    }
+    attachDefaultDates(node[key], dates)
+  }
+}
+
+// Attaches a `date` (derived from `anchorDate` + weeksOnTreatment) to each
+// point in a series that already carries a weeksOnTreatment value.
+function withDates(points, anchorDate) {
+  return points.map((point) => ({ ...point, date: addWeeks(anchorDate, point.weeksOnTreatment) }))
+}
+
 function shuffle(array) {
   const a = [...array]
   for (let i = a.length - 1; i > 0; i--) {
@@ -123,6 +178,18 @@ const KRAS_VARIANTS = [
   { value: 'Q61H', p: 0.06 },
   { value: 'other', p: 0.05 },
 ]
+
+// Trial accrual window (staggered enrollment) and progression-free survival
+// duration by best response — deeper responses stay on treatment longer
+// before eventually progressing. Every on-treatment assessment is scheduled
+// to land strictly before the patient's own progression date.
+const TRIAL_ENROLLMENT_START = '2022-09-01'
+const TRIAL_ENROLLMENT_END = '2023-12-01'
+const PFS_WEEKS_RANGE = {
+  CR: [44, 72],
+  PR: [28, 52],
+  SD: [16, 32],
+}
 
 const HIGH_DOSE_SHARE = 0.76
 const HIGH_DOSE_RESISTANCE_P = 0.59
@@ -293,12 +360,16 @@ const deepSeqAssayProgression = quotaAssign(N_PATIENTS, DEEP_SEQ_ASSAY_WEIGHTS)
 // ---------------------------------------------------------------------------
 // Helpers for time-series lab values (CA19-9 / NLR)
 // ---------------------------------------------------------------------------
-function buildVisitWeeks(numPoints) {
+// Spreads numPoints roughly evenly across (0, maxWeek) so every visit lands
+// strictly before the patient's own progression date, however short their PFS.
+function buildVisitWeeks(numPoints, maxWeek) {
+  const usableMax = Math.max(Math.floor(maxWeek) - 1, numPoints)
+  const step = usableMax / (numPoints + 1)
   const weeks = []
-  let week = randInt(2, 4)
+  let week = 0
   for (let i = 0; i < numPoints; i++) {
+    week = Math.min(Math.max(week + 1, Math.round(step * (i + 1) * randFloat(0.75, 1.15))), usableMax)
     weeks.push(week)
-    week += randInt(2, 4)
   }
   return weeks
 }
@@ -330,16 +401,18 @@ function buildLabSeries(baseline, weeks, { nadirFactorRange, reboundFactorRange,
   return { points, nadir }
 }
 
-function buildInterimRECIST(bestResponse) {
+function buildInterimRECIST(bestResponse, maxWeek) {
   const order = ['SD', 'PR', 'CR']
   const bestIdx = order.indexOf(bestResponse)
   const n = randInt(2, 3)
+  const usableMax = Math.max(Math.floor(maxWeek) - 1, n)
+  const step = usableMax / (n + 1)
   const points = []
-  let week = randInt(6, 8)
+  let week = 0
   for (let i = 0; i < n; i++) {
+    week = Math.min(Math.max(week + 1, Math.round(step * (i + 1) * randFloat(0.75, 1.15))), usableMax)
     const idx = i === n - 1 ? bestIdx : Math.max(0, bestIdx - randInt(0, 1))
     points.push({ weeksOnTreatment: week, assessment: order[idx] })
-    week += randInt(6, 8)
   }
   return points
 }
@@ -398,6 +471,15 @@ function generatePatient(index) {
   const baselineVAF = round(randFloat(5, 40), 1)
   const bestResponse = bestResponses[index]
   const tissueCtdnaConcordant = concordanceFlags[index]
+
+  // --- patient timeline: everything on-treatment is scheduled to land
+  // strictly before this patient's own progression date ---
+  const treatmentStartDate = randomDateInRange(TRIAL_ENROLLMENT_START, TRIAL_ENROLLMENT_END)
+  const progressionFreeSurvivalWeeks = round(randFloat(...PFS_WEEKS_RANGE[bestResponse]), 1)
+  const progressionDate = addWeeks(treatmentStartDate, progressionFreeSurvivalWeeks)
+  const clinicalMidTreatmentWeek = round(progressionFreeSurvivalWeeks * randFloat(0.4, 0.7), 1)
+  const clinicalMidTreatmentDate = addWeeks(treatmentStartDate, clinicalMidTreatmentWeek)
+  const ctdnaWeek = clamp(round(progressionFreeSurvivalWeeks * randFloat(0.1, 0.25), 1), 2, 10)
 
   const hasAcquiredResistance = resistanceFlags[index]
   const resistanceMechanism = resistanceMechanisms[index]
@@ -486,7 +568,7 @@ function generatePatient(index) {
     1,
   )
 
-  const interimRECIST = buildInterimRECIST(bestResponse)
+  const interimRECIST = withDates(buildInterimRECIST(bestResponse, progressionFreeSurvivalWeeks), treatmentStartDate)
 
   const newLesionAgreesWithClinical = bernoulli(0.9)
   const newLesionDetected = newLesionAgreesWithClinical ? newMetastaticSites : !newMetastaticSites
@@ -498,7 +580,7 @@ function generatePatient(index) {
   const liverFunction = bernoulli(liverElevatedP) ? 'mildly elevated' : 'normal'
 
   const numLabPoints = randInt(2, 4)
-  const visitWeeks = buildVisitWeeks(numLabPoints)
+  const visitWeeks = buildVisitWeeks(numLabPoints, progressionFreeSurvivalWeeks)
   const ca199SeriesResult = buildLabSeries(ca199Baseline, visitWeeks, {
     nadirFactorRange: [0.15, 0.45],
     reboundFactorRange: [0.5, 1.3],
@@ -583,8 +665,11 @@ function generatePatient(index) {
   // --- phospho-proteomics (Western blot) ---
   const isDdrComboEligible = combinationStrategy === DDR_COMBO
 
-  return {
+  const record = {
     patientId,
+    enrollmentDate: treatmentStartDate,
+    progressionDate,
+    progressionFreeSurvivalWeeks,
     doseBand,
     bestResponse,
     hasAcquiredResistance,
@@ -604,8 +689,10 @@ function generatePatient(index) {
         },
       },
       midTreatment: {
+        date: addWeeks(treatmentStartDate, ctdnaWeek),
         serialCtDNA: {
-          weeksOnTreatment: randInt(4, 8),
+          weeksOnTreatment: ctdnaWeek,
+          date: addWeeks(treatmentStartDate, ctdnaWeek),
           vaf: round(randFloat(0, 3), 2),
         },
       },
@@ -648,6 +735,7 @@ function generatePatient(index) {
           : null,
       },
       midTreatment: {
+        weeksOnTreatment: clinicalMidTreatmentWeek,
         bulkRNAseq: {
           dusp6Tpm: round(
             dusp6Baseline * pathwayFoldChange('midTreatment', hasAcquiredResistance, resistanceMechanism, DUSP6_RANGES),
@@ -686,7 +774,7 @@ function generatePatient(index) {
     },
     flowCytometry: {
       baseline: { assay: 'Flow cytometry (Alexa Fluor 647–HER2)', her2MFI: her2MfiBaseline },
-      midTreatment: { her2MFI: round(her2MfiBaseline * randFloat(0.9, 1.6), 1) },
+      midTreatment: { weeksOnTreatment: clinicalMidTreatmentWeek, her2MFI: round(her2MfiBaseline * randFloat(0.9, 1.6), 1) },
       progression: {
         her2MFI: her2MfiProgression,
         her2Upregulated: her2MfiProgression > her2MfiBaseline * 2,
@@ -699,6 +787,7 @@ function generatePatient(index) {
         classifierConfidence: round(randFloat(0.85, 0.99), 2),
       },
       midTreatment: {
+        weeksOnTreatment: clinicalMidTreatmentWeek,
         pERKPositivityPctEpithelial: round(
           clamp(
             perkIhcBaseline * pathwayFoldChange('midTreatment', hasAcquiredResistance, resistanceMechanism, PERK_IHC_RANGES),
@@ -723,6 +812,7 @@ function generatePatient(index) {
     },
     phosphoproteomics: {
       midTreatment: {
+        weeksOnTreatment: clinicalMidTreatmentWeek,
         assay: 'Western blot / phospho-RPPA',
         pERKFoldChangeVsBaseline: round(
           pathwayFoldChange('midTreatment', hasAcquiredResistance, resistanceMechanism, PERK_WB_RANGES),
@@ -761,10 +851,12 @@ function generatePatient(index) {
         metastaticSitesBaseline,
       },
       midTreatment: {
+        weeksOnTreatment: clinicalMidTreatmentWeek,
         toxicityProfile,
         performanceStatusMidTreatment,
       },
       progression: {
+        weeksOnTreatment: progressionFreeSurvivalWeeks,
         performanceStatusEOT,
         newMetastaticSites,
       },
@@ -778,6 +870,7 @@ function generatePatient(index) {
         interimRECIST,
       },
       progression: {
+        weeksOnTreatment: progressionFreeSurvivalWeeks,
         confirmationScan: {
           assessment: 'PD',
           newLesionDetected,
@@ -791,15 +884,23 @@ function generatePatient(index) {
         liverFunction,
       },
       midTreatment: {
-        ca199Series: ca199SeriesResult.points,
-        nlrSeries: nlrSeriesResult.points,
+        ca199Series: withDates(ca199SeriesResult.points, treatmentStartDate),
+        nlrSeries: withDates(nlrSeriesResult.points, treatmentStartDate),
       },
       progression: {
+        weeksOnTreatment: progressionFreeSurvivalWeeks,
         ca199AtProgression,
         nlrAtProgression,
       },
     },
   }
+
+  attachDefaultDates(record, {
+    baseline: treatmentStartDate,
+    midTreatment: clinicalMidTreatmentDate,
+    progression: progressionDate,
+  })
+  return record
 }
 
 const cohort = Array.from({ length: N_PATIENTS }, (_, i) => generatePatient(i))
@@ -907,3 +1008,36 @@ for (const group of ['negative', 'ras-reactivation', 'non-ras-mechanism']) {
 }
 const ffAvailable = (arr, timepoint) => pct(arr.filter((p) => p.biospecimens[timepoint].freshFrozenCollected).length, arr.length)
 console.log(`  Fresh-frozen tissue available — baseline: ${ffAvailable(cohort, 'baseline')}, progression: ${ffAvailable(cohort, 'progression')}`)
+
+console.log('\nTimeline checks:')
+function collectDates(node, out) {
+  if (Array.isArray(node)) {
+    node.forEach((n) => collectDates(n, out))
+    return
+  }
+  if (node === null || typeof node !== 'object') return
+  if (typeof node.date === 'string') out.push(node.date)
+  for (const v of Object.values(node)) collectDates(v, out)
+}
+let dateFieldCount = 0
+let orderingViolations = 0
+for (const p of cohort) {
+  const enrollTime = new Date(p.enrollmentDate).getTime()
+  const progTime = new Date(p.progressionDate).getTime()
+  const dates = []
+  collectDates(p, dates)
+  dateFieldCount += dates.length
+  for (const d of dates) {
+    const t = new Date(d).getTime()
+    if (t < enrollTime || t > progTime) orderingViolations++
+  }
+}
+const enrollDates = cohort.map((p) => p.enrollmentDate).sort()
+const progDates = cohort.map((p) => p.progressionDate).sort()
+const pfsWeeks = cohort.map((p) => p.progressionFreeSurvivalWeeks).sort((a, b) => a - b)
+console.log(`  Date fields present: ${dateFieldCount}, out of enrollment-to-progression range: ${orderingViolations}`)
+console.log(`  Enrollment date range: ${enrollDates[0]} to ${enrollDates[enrollDates.length - 1]}`)
+console.log(`  Progression date range: ${progDates[0]} to ${progDates[progDates.length - 1]}`)
+console.log(
+  `  PFS (weeks): min ${pfsWeeks[0]}, median ${pfsWeeks[Math.floor(pfsWeeks.length / 2)]}, max ${pfsWeeks[pfsWeeks.length - 1]}`,
+)
