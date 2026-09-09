@@ -59,10 +59,9 @@ function TrajectoryTooltip({ active, payload, label, showCa199, showNlr }) {
   )
 }
 
-function PatientTrajectory({ mechanismFilter, onMechanismFilterChange }) {
+function PatientTrajectory({ mechanismFilter, onMechanismFilterChange, selectedPatientId, onSelectedPatientIdChange }) {
   const { cohort } = useCohort()
   const [search, setSearch] = useState('')
-  const [selectedPatientId, setSelectedPatientId] = useState(null)
   const [showCa199, setShowCa199] = useState(false)
   const [showNlr, setShowNlr] = useState(false)
 
@@ -172,7 +171,7 @@ function PatientTrajectory({ mechanismFilter, onMechanismFilterChange }) {
               <button
                 key={patient.patientId}
                 type="button"
-                onClick={() => setSelectedPatientId(patient.patientId)}
+                onClick={() => onSelectedPatientIdChange(patient.patientId)}
                 aria-pressed={isSelected}
                 className={`rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-500 ${
                   isSelected

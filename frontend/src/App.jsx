@@ -33,6 +33,9 @@ function App() {
   // Shared across views so a mechanism picked in Cohort Landscape carries
   // over when the user switches to Patient Trajectory (and back).
   const [mechanismFilter, setMechanismFilter] = useState(null)
+  // Shared so Mechanism & Strategy can highlight whichever mechanism is
+  // active in Patient Trajectory's current patient, not just the filter.
+  const [selectedPatientId, setSelectedPatientId] = useState(null)
 
   function handlePersonaChange(personaId) {
     setActivePersona(personaId)
@@ -106,7 +109,12 @@ function App() {
       <main className="mx-auto max-w-7xl px-6 py-8">
         {VIEWS.map((view) => (
           <div key={view.id} hidden={view.id !== activeView}>
-            <view.Component mechanismFilter={mechanismFilter} onMechanismFilterChange={setMechanismFilter} />
+            <view.Component
+              mechanismFilter={mechanismFilter}
+              onMechanismFilterChange={setMechanismFilter}
+              selectedPatientId={selectedPatientId}
+              onSelectedPatientIdChange={setSelectedPatientId}
+            />
           </div>
         ))}
       </main>
