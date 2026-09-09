@@ -4,12 +4,11 @@ import PatientTrajectory from './views/PatientTrajectory'
 import MechanismStrategy from './views/MechanismStrategy'
 
 const PERSONAS = [
-  { id: 'epi', label: 'Epidemiology / RWE', short: 'Epi / RWE', defaultView: 'cohort-landscape' },
-  { id: 'transmed', label: 'Translational Medicine', short: 'Trans Med', defaultView: 'patient-trajectory' },
+  { id: 'epi', label: 'Epidemiology / RWE', defaultView: 'cohort-landscape' },
+  { id: 'transmed', label: 'Translational Medicine', defaultView: 'patient-trajectory' },
   {
     id: 'medaffairs',
     label: 'Medical Affairs / Clinical Development',
-    short: 'Med Affairs',
     defaultView: 'mechanism-strategy',
   },
 ]
@@ -47,7 +46,9 @@ function App() {
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div className="flex items-baseline gap-2.5">
             <h1 className="text-lg font-semibold tracking-tight">Resistance Atlas</h1>
-            <span className="text-xs font-medium text-ink-400">PDAC · daraxonrasib RWE</span>
+            <span className="text-xs font-medium text-ink-400">
+              Pancreatic Ductal Adenocarcinoma · daraxonrasib Real-World Evidence
+            </span>
           </div>
 
           <div
@@ -72,7 +73,7 @@ function App() {
                     className={`h-1.5 w-1.5 rounded-full ${PERSONA_DOT_CLASS[persona.id]} ${isActive ? '' : 'opacity-40'}`}
                     aria-hidden="true"
                   />
-                  {persona.short}
+                  {persona.label}
                 </button>
               )
             })}
